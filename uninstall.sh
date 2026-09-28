@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Entfernt FanControl for Linux. Mit --purge werden auch Konfiguration, Profile und die Gruppe gelöscht.
+# Removes Linux FanControl. With --purge the configuration, profiles and the group are deleted as well.
 set -euo pipefail
 
 PREFIX=/usr/local
@@ -9,11 +9,11 @@ PURGE=0
 [[ "${1:-}" == "--purge" ]] && PURGE=1
 
 if [[ $EUID -ne 0 ]]; then
-    echo "Bitte mit sudo ausführen: sudo ./uninstall.sh [--purge]" >&2
+    echo "Please run with sudo: sudo ./uninstall.sh [--purge]" >&2
     exit 1
 fi
 
-# Beim Stoppen gibt der Dienst die Lüfter an BIOS/Firmware zurück.
+# When stopped, the service hands the fans back to BIOS/firmware.
 if [[ -f /etc/systemd/system/fancontrol-linux.service ]]; then
     systemctl disable --now fancontrol-linux.service 2>/dev/null || true
     rm -f /etc/systemd/system/fancontrol-linux.service
@@ -30,7 +30,7 @@ if [[ -d /etc/sv/fancontrol-linux ]]; then
     rm -rf /etc/sv/fancontrol-linux
 fi
 
-for b in fancontrol-linux fancontrol-linuxd fancontrol-linuxctl; do
+for b in fancontrol-linux fancontrol-linuxd fancontrol-linuxctl fancontrol-linux-upgrade; do
     rm -f "$PREFIX/bin/$b"
 done
 rm -rf "$PREFIX/lib/fancontrol-linux" /opt/fancontrol-linux
@@ -38,14 +38,14 @@ rm -f "$PREFIX/share/applications/io.github.fancontrol_linux.desktop"
 rm -f "$PREFIX/share/icons/hicolor/scalable/apps/io.github.fancontrol_linux.svg"
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$PREFIX/share/icons/hicolor" || true
 
-# Treiber-Einstellungen, die der Installer angelegt hat.
+# Driver settings created by the installer.
 REGEN=0
 if [[ -f $MANIFEST ]]; then
     while read -r file; do
         [[ -n $file && -f $file ]] || continue
         [[ $file == *amdgpu* ]] && REGEN=1
         rm -f "$file"
-        echo "Entfernt: $file"
+        echo "Removed: $file"
     done < "$MANIFEST"
     rm -f "$MANIFEST"
 fi
@@ -53,17 +53,17 @@ if [[ $REGEN -eq 1 ]]; then
     if command -v update-initramfs >/dev/null; then update-initramfs -u
     elif command -v dracut >/dev/null; then dracut -f
     elif command -v mkinitcpio >/dev/null; then mkinitcpio -P
-    fi || echo "Hinweis: initramfs bitte neu erzeugen, damit die AMD-Overdrive-Option entfällt."
+    fi || echo "Note: please regenerate the initramfs so the AMD overdrive option is dropped."
 fi
 if [[ -d /usr/src/it87-fancontrol-linux ]]; then
-    echo "Hinweis: Der per DKMS installierte it87-Treiber bleibt erhalten (entfernen: sudo dkms remove it87/<version> --all)."
+    echo "Note: the it87 driver installed via DKMS is kept (remove it: sudo dkms remove it87/<version> --all)."
 fi
 
 if [[ $PURGE -eq 1 ]]; then
     rm -rf /etc/fancontrol-linux "$STATE_DIR"
     getent group fancontrol >/dev/null && { groupdel fancontrol 2>/dev/null || delgroup fancontrol; } || true
-    echo "Konfiguration und Gruppe entfernt."
+    echo "Configuration and group removed."
 else
-    echo "Konfiguration unter /etc/fancontrol-linux bleibt erhalten (vollständig entfernen: --purge)."
+    echo "The configuration in /etc/fancontrol-linux is kept (remove everything: --purge)."
 fi
-echo "FanControl for Linux wurde entfernt."
+echo "Linux FanControl has been removed."

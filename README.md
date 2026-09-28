@@ -1,231 +1,251 @@
-# FanControl for Linux
+# Linux FanControl
 
-Eine Lüftersteuerung für Linux, angelehnt an [FanControl](https://getfancontrol.com) für Windows – mit Kacheln, Menü links,
-Farbthemen, Kurveneditor, eigenen Sensoren, Profilen, Kalibrierung und Tray-Symbolen.
-Es ist eine eigenständige Neuentwicklung: Das Original ist Closed Source, deshalb stammt hier kein Code daraus.
+Fan control for Linux, inspired by [FanControl](https://getfancontrol.com) for Windows: cards, a side menu, colour
+themes, a curve editor, custom sensors, profiles, calibration and tray icons.
+Linux FanControl is an independent implementation. The original is closed source, so no code was taken from it.
 
-![Steuerungen](docs/steuerungen.png)
+![Controls](docs/controls.png)
 
-| Kurven | Kurveneditor | Design |
+| Curves | Curve editor | Design |
 |---|---|---|
-| ![Kurven](docs/kurven.png) | ![Editor](docs/kurveneditor.png) | ![Design](docs/design.png) |
+| ![Curves](docs/curves.png) | ![Editor](docs/curve-editor.png) | ![Design](docs/design.png) |
 
-## Funktionen
+## Features
 
-**Lüfter (Steuerungen)**
-- Mainboard-Lüfter über hwmon (`nct6775`, `it87`, `dell-smm`, `thinkpad_acpi` …), AMD-Grafikkarten (`amdgpu`)
-  und **NVIDIA-Grafikkarten** über NVML (proprietärer Treiber, Steuerung über den Dienst)
-- Kurve zuweisen oder **manuell** per Regler steuern
-- Feinabstimmung: Schritt hoch/runter (%/s), Anlauf %, **Stop %**, Offset, Minimum/Maximum %, Bereiche vermeiden
-- **Kalibrierung** misst Anlauf-/Stopp-Punkt und die Drehzahlkurve und erkennt Lüfter mit flacher Kennlinie
-- **Anlaufhilfe**: Startet ein kalibrierter Lüfter nicht, wird die Drehzahl schrittweise erhöht
-- **Identifizieren**: Der Lüfter läuft 10 s auf 100 %, damit du ihn im Gehäuse findest
-- „?“-Anzeige, wenn BIOS oder ein anderes Programm eingreift; **Erzwingen** holt die Steuerung sofort zurück
+**Fans (controls)**
+- Mainboard fans via hwmon (`nct6775`, `it87`, `dell-smm`, `thinkpad_acpi` …), AMD graphics cards (`amdgpu`)
+  and **NVIDIA graphics cards** via NVML (proprietary driver, controlled by the service)
+- Assign a curve or control a fan **manually** with a slider
+- Fine tuning: step up/down (%/s), start %, **stop %**, offset, minimum/maximum %, avoid ranges
+- **Calibration** measures the start/stop point and the speed curve and detects fans with a flat low range
+- **Start assist**: if a calibrated fan does not start, its speed is raised step by step
+- **Identify**: the fan runs at 100 % for 10 s so you can find it in the case
+- "?" indicator when the BIOS or another program interferes; **Force** takes control back immediately
 
-**Kurven**
-- Grafisch (Punkte ziehen, per Zahl eingeben, Temperaturbereich der Achse einstellbar), Linear, Fester Wert,
-  Mix (Max/Min/Durchschnitt/Summe/Subtrahieren), Auslöser (Leerlauf/Last), **Sync** (folgt einem anderen Lüfter),
-  **Auto** (sucht die niedrigste Drehzahl, die eine Zieltemperatur hält)
-- **Hysterese getrennt für steigend/fallend**, jeweils mit Reaktionszeit, optional an den Grenzen ignoriert
-- **RPM-Modus**: Die Kurve gibt eine Drehzahl vor, kalibrierte Lüfter fahren sie an
-- Großer Editor mit Live-Temperaturmarker und „Abbrechen“
+**Curves**
+- Graph (drag points, enter them as numbers, adjustable temperature axis), linear, flat, mix
+  (max/min/average/sum/subtract), trigger (idle/load), **sync** (follows another fan), **auto** (finds the lowest
+  speed that holds a target temperature)
+- **Separate hysteresis for rising and falling temperatures**, each with a response time, optionally ignored at
+  the limits
+- **RPM mode**: the curve sets a speed in RPM, calibrated fans follow it
+- Large editor with a live temperature marker and "Cancel"
 
-**Eigene Sensoren**: Mix, Zeitdurchschnitt (bis 3600 s), Offset (fest oder proportional), Datei-Sensor
+**Custom sensors**: mix, time average (up to 3600 s), offset (fixed or proportional), file sensor
 
-**Oberfläche**
-- Menüleiste links: Steuerungen, Kurven, Sensoren, Design, Tray, Einstellungen, Über
-- Farbthemen (Klassisch Blau/Gelb, Ozean, Wald, Glut, Violett, Graphit, Adwaita) oder **eigene Farben** für
-  Akzent, Kacheln und Kopfzeile, dazu Hell/Dunkel/System
-- °C oder °F, Kacheln ausblenden (Augen-Symbol zeigt sie wieder), Hilfe (?) je Bereich und je Kurventyp
-- **Tray**: Hauptsymbol mit Menü (Öffnen, Profil wechseln, Beenden) und beliebig viele **Werte-Symbole**
-  (Temperatur, % oder RPM) in eigener Farbe; optional beim Anmelden direkt im Tray starten
-- **Profile** plus Konfigurationsdateien: neu (leer), öffnen, speichern unter, **importieren** (einzelne
-  Kurven/Sensoren/Steuerungen aus einer anderen Datei)
-- Einrichtungsassistent, Tastenkürzel (F1 zeigt die Übersicht)
+**User interface**
+- Side menu: Controls, Curves, Sensors, Design, Tray, Settings, About
+- Colour themes (classic blue/yellow, ocean, forest, ember, violet, graphite, Adwaita) or **custom colours** for
+  accent, cards and header bar, plus light/dark/system
+- °C or °F, hide cards (the eye icon shows them again), help (?) per section and per curve type
+- **Tray**: main icon with a menu (open, switch profile, quit) and any number of **value icons**
+  (temperature, % or RPM) in your own colours; optionally start in the tray at login
+- **Profiles** plus configuration files: new (empty), open, save as, **import** (single curves/sensors/controls
+  from another file)
+- Setup assistant, keyboard shortcuts (F1 shows the overview)
 
-**Sicherheit**
-- Fehlt ein Sensor, laufen die betroffenen Lüfter auf voller Drehzahl.
-- Ab einer einstellbaren Sicherheitstemperatur laufen alle Lüfter auf 100 %.
-- Beim Beenden des Dienstes bekommen BIOS bzw. Treiber die Steuerung zurück.
-- Der Dienst läuft als root, die Oberfläche als normaler Benutzer. Die Verbindung zwischen beiden ist auf die Gruppe
-  `fancontrol` beschränkt, und jede Konfiguration wird geprüft. Datei-Sensoren dürfen nur aus freigegebenen Ordnern lesen.
+**Safety**
+- If a sensor is missing, the affected fans run at full speed.
+- Above an adjustable safety temperature all fans run at 100 %.
+- When the service stops, the BIOS or the driver gets control back.
+- The service runs as root, the user interface as a normal user. Only members of the `fancontrol` group can talk to
+  the service, and every configuration is validated. File sensors may only read from approved directories.
 
-### Vergleich mit FanControl für Windows
+### Compared with FanControl for Windows
 
-Übernommen wurden alle Funktionen aus den Release-Notizen bis V281, soweit sie unter Linux Sinn ergeben.
-Diese Punkte gibt es hier bewusst nicht:
+Every feature from the release notes up to V281 was taken over where it makes sense on Linux.
+These parts are intentionally different:
 
-| Original | Hier |
+| Original | Linux FanControl |
 |---|---|
-| Plugins (.NET-DLLs) | Eingebaute Linux-Backends (siehe unten), Datei-Sensoren und `fancontrol-linuxctl` für eigene Skripte |
-| LibreHardwareMonitor, PawnIO/WinRing0, ADLX | Linux-Kerneltreiber (hwmon), NVML, liquidctl |
-| Updater, Signierung, .NET-Versionen | Installation über `install.sh` |
-| Übersetzungen | Oberfläche auf Deutsch |
+| Plugins (.NET DLLs) | Built-in Linux backends (see below), file sensors and `fancontrol-linuxctl` for your own scripts |
+| LibreHardwareMonitor, PawnIO/WinRing0, ADLX | Linux kernel drivers (hwmon), NVML, liquidctl |
+| Updater, signing, .NET versions | `install.sh`, AppImage and `fancontrol-linux-upgrade` |
+| Translations | English user interface |
 
-## Unterstützte Hardware
+## Supported hardware
 
-| Gerätegruppe (Windows-Plugin) | Unter Linux | Steuern | Anzeigen |
+| Device group (Windows plugin) | On Linux | Control | Monitor |
 |---|---|---|---|
-| Mainboard-Lüfter (LibreHardwareMonitor) | hwmon-Treiber `nct6775`, `it87`, `f71882fg`, `w83627ehf` …; der Installer führt `sensors-detect` aus, lädt die Treiber dauerhaft und bietet für neuere ITE-Chips den [it87-Treiber](https://github.com/frankcrawford/it87) per DKMS an | ✓ | ✓ |
-| NVIDIA-Grafikkarten | NVML aus dem proprietären Treiber | ✓ | ✓ |
-| AMD-Grafikkarten bis RDNA2 | `amdgpu` (pwm1) | ✓ | ✓ |
-| AMD RDNA3/RDNA4 (RX 7000/9000) | `amdgpu`-Overdrive-Lüfterkurve; der Installer bietet die nötige Kernel-Option an (`--amd-overdrive`) | ✓ | ✓ |
+| Mainboard fans (LibreHardwareMonitor) | hwmon drivers `nct6775`, `it87`, `f71882fg`, `w83627ehf` …; the installer runs `sensors-detect`, loads the drivers permanently and offers the [it87 driver](https://github.com/frankcrawford/it87) via DKMS for newer ITE chips | ✓ | ✓ |
+| NVIDIA graphics cards | NVML from the proprietary driver | ✓ | ✓ |
+| AMD graphics cards up to RDNA2 | `amdgpu` (pwm1) | ✓ | ✓ |
+| AMD RDNA3/RDNA4 (RX 7000/9000) | `amdgpu` overdrive fan curve; the installer offers the required kernel option (`--amd-overdrive`) | ✓ | ✓ |
 | Intel Arc (**IntelCtlLibrary**) | `i915`/`xe` hwmon | – ¹ | ✓ |
-| Dell (**DellPlugin**) | `dell-smm-hwmon` (Installer lädt das Modul) | ✓ ² | ✓ |
-| ASUS (**AsusWMI**) | `nct6775` über ASUS-WMI (automatisch ab Kernel 5.16), `asus-ec-sensors`, `asus-wmi-sensors` | ✓ | ✓ |
-| ThinkPad | `thinkpad_acpi` mit `fan_control=1` (Installer, `--thinkpad-fan`) | ✓ | ✓ |
-| AIO-Wasserkühlungen, Smart-Hubs (**LiquidCtl**) | liquidctl (NZXT Kraken/Smart Device/RGB & Fan Controller, Corsair Hydro/iCUE Elite/Commander Core, ASUS Ryujin, MSI Coreliquid, EVGA CLC, Gigabyte …) | ✓ | ✓ |
-| Aquacomputer (**AquacomputerDevices**) | Kerneltreiber `aquacomputer_d5next`: Octo, Quadro, D5 Next, Farbwerk 360, High Flow Next, Leakshield … | ✓ ³ | ✓ |
-| Corsair (**CorsairLink**) | Kerneltreiber `corsair-cpro` (Commander Pro), `corsair-psu`, dazu liquidctl (Commander Core/ST, Hydro Platinum/Elite/Pro) | ✓ | ✓ |
-| NZXT | Kerneltreiber `nzxt-kraken3`, `nzxt-smart2` oder liquidctl | ✓ | ✓ |
-| Thermaltake (**Thermaltake**) | experimenteller eigener USB-Treiber für Riing-/G3-Controller (in den Einstellungen einschalten, ungetestet) | ✓ | ✓ |
-| **HWiNFO**, **GPU-Z** | Das sind reine Windows-Programme. Ihre Sensoren (GPU-Hotspot, VRAM, Chipsatz …) liefern unter Linux die Kerneltreiber und NVML direkt; eigene Quellen lassen sich über Datei-Sensoren einbinden | – | ✓ |
-| **Razer** | Unter Linux gibt es keine Schnittstelle für Razer-Lüfter (OpenRazer steuert nur Beleuchtung) | – | – |
+| Dell (**DellPlugin**) | `dell-smm-hwmon` (loaded by the installer) | ✓ ² | ✓ |
+| ASUS (**AsusWMI**) | `nct6775` via ASUS WMI (automatic since kernel 5.16), `asus-ec-sensors`, `asus-wmi-sensors` | ✓ | ✓ |
+| ThinkPad | `thinkpad_acpi` with `fan_control=1` (installer, `--thinkpad-fan`) | ✓ | ✓ |
+| AIO liquid coolers, smart hubs (**LiquidCtl**) | liquidctl (NZXT Kraken/Smart Device/RGB & Fan Controller, Corsair Hydro/iCUE Elite/Commander Core, ASUS Ryujin, MSI Coreliquid, EVGA CLC, Gigabyte …) | ✓ | ✓ |
+| Aquacomputer (**AquacomputerDevices**) | kernel driver `aquacomputer_d5next`: Octo, Quadro, D5 Next, Farbwerk 360, High Flow Next, Leakshield … | ✓ ³ | ✓ |
+| Corsair (**CorsairLink**) | kernel drivers `corsair-cpro` (Commander Pro), `corsair-psu`, plus liquidctl (Commander Core/ST, Hydro Platinum/Elite/Pro) | ✓ | ✓ |
+| NZXT | kernel drivers `nzxt-kraken3`, `nzxt-smart2` or liquidctl | ✓ | ✓ |
+| Thermaltake (**Thermaltake**) | experimental built-in USB driver for Riing/G3 controllers (enable it in the settings; untested) | ✓ | ✓ |
+| **HWiNFO**, **GPU-Z** | These are Windows-only programs. On Linux their sensors (GPU hotspot, VRAM, chipset …) come directly from the kernel drivers and NVML; other sources can be added as file sensors | – | ✓ |
+| **Razer** | Linux has no interface for Razer fans (OpenRazer only controls lighting) | – | – |
 
-¹ Der Intel-Treiber bietet unter Linux (noch) keine Lüftersteuerung. ² Dell-Lüfter kennen meist nur die Stufen aus/niedrig/hoch.
-³ Steuern je nach Gerät, Anzeigen bei allen.
+¹ The Linux Intel driver does not (yet) offer fan control. ² Dell fans usually only know off/low/high.
+³ Control depends on the device, monitoring works for all.
 
-In **Einstellungen → Hardware-Unterstützung** zeigt das Programm, was erkannt wurde und was ggf. noch fehlt.
+**Settings → Hardware support** shows what was detected and what may still be missing.
 
-## Voraussetzungen
+## Requirements
 
-- Python ≥ 3.10 und systemd, OpenRC oder runit
-- Für die Oberfläche: GTK ≥ 4.14 und libadwaita ≥ 1.5. Auf älteren Systemen (z. B. Debian 12, Ubuntu 22.04)
-  das **AppImage** verwenden, das alles mitbringt.
-- Für Tray-Symbole eine Kontrollleiste mit StatusNotifier (KDE, Xfce, Cinnamon, GNOME mit AppIndicator-Erweiterung –
-  die installiert der Installer unter GNOME mit)
+- Python ≥ 3.10 and systemd, OpenRC or runit
+- For the user interface: GTK ≥ 4.14 and libadwaita ≥ 1.5. On older systems (e.g. Debian 12, Ubuntu 22.04)
+  use the **AppImage**, which brings everything with it.
+- For tray icons a panel with StatusNotifier support (KDE, Xfce, Cinnamon, GNOME with the AppIndicator extension –
+  the installer adds it on GNOME)
 
-Installer, Dienst und Kommandozeile sind in Containern getestet auf:
+Installer, service and command line are tested in containers on:
 
-| Distribution | Oberfläche |
+| Distribution | User interface |
 |---|---|
 | Ubuntu 24.04 (GTK 4.14, Adw 1.5) | ✓ |
 | Debian 13 (GTK 4.18, Adw 1.7) | ✓ |
-| Debian 12 (GTK 4.8, Adw 1.2) | über das AppImage ✓ |
-| Ubuntu 22.04 (GTK 4.6) | über das AppImage ✓ |
-| Fedora (aktuell) | ✓ |
+| Debian 12 (GTK 4.8, Adw 1.2) | ✓ via the AppImage |
+| Ubuntu 22.04 (GTK 4.6) | ✓ via the AppImage |
+| Fedora (current) | ✓ |
 | Arch Linux | ✓ |
 | openSUSE Tumbleweed | ✓ |
 | Alpine Linux (OpenRC) | ✓ |
 | Void Linux (runit) | ✓ |
 
-Linux Mint, Pop!_OS, Manjaro, EndeavourOS, CachyOS, Rocky/Alma usw. werden über ihre Basisdistribution erkannt.
+Linux Mint, Pop!_OS, Manjaro, EndeavourOS, CachyOS, Rocky/Alma etc. are recognised through their base distribution.
 
-## AppImage (eine Datei, läuft auch auf älteren Systemen)
+## AppImage (a single file, also runs on older systems)
 
-Das AppImage bringt Python, GTK 4, libadwaita und liquidctl mit und läuft ohne weitere Pakete auf praktisch
-jedem x86_64-Linux, getestet u. a. auf Debian 12 und Ubuntu 22.04, auf denen die normale Installation keine
-Oberfläche bietet.
+The AppImage ships Python, GTK 4, libadwaita and liquidctl and runs without additional packages on practically any
+x86_64 Linux – including Debian 12 and Ubuntu 22.04, where the regular installation has no user interface.
+Download it from the [releases page](https://github.com/SloppyHenry/FanControlLinux/releases).
 
 ```bash
-chmod +x FanControl-x86_64.AppImage
-./FanControl-x86_64.AppImage                  # Oberfläche starten
-sudo ./FanControl-x86_64.AppImage --install   # Dienst + Hardware einrichten (Optionen wie install.sh)
+chmod +x LinuxFanControl-x86_64.AppImage
+./LinuxFanControl-x86_64.AppImage                  # start the user interface
+sudo ./LinuxFanControl-x86_64.AppImage --install   # set up service + hardware (same options as install.sh)
 ```
 
-Die Lüfter regelt ein Hintergrunddienst mit root-Rechten, den ein AppImage nicht selbst betreiben kann. `--install`
-kopiert das AppImage deshalb nach `/opt/fancontrol-linux` und richtet Dienst, Befehle, Startmenü-Eintrag und Treiber
-genauso ein wie `install.sh`. Startest du die Oberfläche ohne eingerichteten Dienst, bietet sie dafür den Knopf
-**„Dienst installieren“** an. Entfernen: `sudo ./FanControl-x86_64.AppImage --uninstall [--purge]`.
+A background service with root privileges controls the fans, and an AppImage cannot run that on its own.
+`--install` therefore copies the AppImage to `/opt/fancontrol-linux` and sets up the service, commands, menu entry
+and drivers just like `install.sh`. If you start the user interface without the service, it offers an
+**"Install service"** button. Remove it with `sudo ./LinuxFanControl-x86_64.AppImage --uninstall [--purge]`.
 
-Weitere Modi: `--ctl <befehl>` (wie `fancontrol-linuxctl`), `--daemon`.
+Other modes: `--ctl <command>` (like `fancontrol-linuxctl`), `--daemon`.
 
-Selbst bauen (braucht Docker oder Podman): `./packaging/appimage/build.sh` → `dist/FanControl-x86_64.AppImage`
+Build it yourself (needs Docker or Podman): `./packaging/appimage/build.sh` → `dist/LinuxFanControl-x86_64.AppImage`
 
-## Installation
+## Installation from source
 
 ```bash
+git clone https://github.com/SloppyHenry/FanControlLinux.git
+cd FanControlLinux
 sudo ./install.sh
 ```
 
-Der Installer erkennt Distribution und Init-System und erledigt:
+The installer detects the distribution and the init system and takes care of:
 
-1. Pakete: Python, GTK 4/libadwaita, lm-sensors, liquidctl, polkit, pciutils/usbutils (über apt, dnf, pacman,
-   zypper, xbps, apk oder emerge). Fehlt liquidctl als Paket und sind passende USB-Geräte angeschlossen, wird es in
-   eine private Python-Umgebung installiert.
+1. Packages: Python, GTK 4/libadwaita, lm-sensors, liquidctl, polkit, pciutils/usbutils (via apt, dnf, pacman,
+   zypper, xbps, apk or emerge). If liquidctl is not packaged and matching USB devices are connected, it is installed
+   into a private Python environment.
 2. Hardware:
-   - `sensors-detect --auto`, die gefundenen Treiber werden geladen und über `/etc/modules-load.d/` dauerhaft eingetragen
-   - Hersteller-Module für Dell, ASUS und ThinkPad
-   - Prüfung von NVIDIA (NVML) und Intel Arc
-   - AMD RDNA3/4-Overdrive und den it87-DKMS-Treiber bietet er auf Nachfrage an
-3. Programm nach `/usr/local/lib/fancontrol-linux`, Befehle nach `/usr/local/bin`, Eintrag im Anwendungsmenü.
-4. Gruppe `fancontrol` anlegen und dich hinzufügen. **Danach einmal ab- und wieder anmelden.**
-5. Den Hintergrunddienst einrichten und starten (systemd, OpenRC oder runit). Ein laufender lm-sensors-Dienst
-   `fancontrol` wird deaktiviert, weil sich beide gegenseitig stören würden.
-6. Am Ende eine Übersicht der erkannten Hardware und Hinweise zu allem, was noch fehlt.
+   - `sensors-detect --auto`; the drivers it finds are loaded and made permanent in `/etc/modules-load.d/`
+   - vendor modules for Dell, ASUS and ThinkPad
+   - checks for NVIDIA (NVML) and Intel Arc
+   - AMD RDNA3/4 overdrive and the it87 DKMS driver are offered on request
+3. Program in `/usr/local/lib/fancontrol-linux`, commands in `/usr/local/bin`, an entry in the application menu.
+4. Creates the group `fancontrol` and adds you to it. **Log out and back in once afterwards.**
+5. Sets up and starts the background service (systemd, OpenRC or runit). A running lm-sensors `fancontrol`
+   service is disabled because both would interfere with each other.
+6. Finally an overview of the detected hardware and notes about anything still missing.
 
-Optionen: `--yes` (keine Rückfragen), `--no-deps`, `--no-hardware`, `--no-service`, `--amd-overdrive`,
-`--it87-dkms`, `--thinkpad-fan`. Protokoll: `/var/log/fancontrol-linux-install.log`.
+Options: `--yes` (no questions), `--no-deps`, `--no-hardware`, `--no-service`, `--amd-overdrive`, `--it87-dkms`,
+`--thinkpad-fan`. Log: `/var/log/fancontrol-linux-install.log`.
 
-Danach startest du **FanControl** aus dem Anwendungsmenü oder mit `fancontrol-linux` (`--hidden` startet nur im Tray).
+Then start **Linux FanControl** from the application menu or with `fancontrol-linux` (`--hidden` starts it in
+the tray only).
 
-Deinstallieren: `sudo ./uninstall.sh`. Das entfernt auch die vom Installer angelegten Treiber-Einstellungen;
-mit `--purge` zusätzlich Konfiguration und Gruppe.
+Uninstall: `sudo ./uninstall.sh`. This also removes the driver settings created by the installer; `--purge`
+additionally removes the configuration and the group.
 
-### Es werden keine Mainboard-Lüfter gefunden?
-
-Der Installer versucht das automatisch. Wenn es trotzdem nicht klappt:
-
-- In `/var/log/fancontrol-linux-sensors-detect.log` steht, welcher Chip gefunden wurde.
-- ITE-Chips (häufig bei Gigabyte, BIOSTAR, ASRock): `sudo ./install.sh --it87-dkms` installiert den aktuellen
-  [it87-Treiber](https://github.com/frankcrawford/it87).
-- Meldet `sudo dmesg` einen ACPI-Ressourcenkonflikt, hilft der Kernelparameter `acpi_enforce_resources=lax`.
-- Danach: `sudo systemctl restart fancontrol-linux` (oder in der Oberfläche „Hardware neu erkennen“).
-
-## Kommandozeile
+## Upgrading
 
 ```bash
-fancontrol-linuxctl status              # alle Werte
-fancontrol-linuxctl profiles            # Profile auflisten
-fancontrol-linuxctl save Leise          # aktuelle Einstellung als Profil speichern
-fancontrol-linuxctl load Leise          # Profil laden (z. B. per Tastenkürzel oder Skript)
+sudo fancontrol-linux-upgrade            # upgrade to the latest release
+fancontrol-linux-upgrade --check         # only check whether an update is available
+sudo fancontrol-linux-upgrade --version v1.1.0   # install a specific release
+```
+
+The upgrade script detects whether Linux FanControl was installed from source or from the AppImage and fetches
+the matching release from GitHub (AppImage downloads are checked against their SHA-256 checksum). Configuration,
+profiles and driver settings are kept, and the service is restarted. Afterwards restart the user interface.
+
+Installations of version 1.0.0 do not have the command yet. To add it, run `sudo ./upgrade.sh` once from a
+checkout of this repository.
+
+### No mainboard fans found?
+
+The installer tries to handle this automatically. If it still does not work:
+
+- `/var/log/fancontrol-linux-sensors-detect.log` shows which chip was found.
+- ITE chips (common on Gigabyte, BIOSTAR, ASRock): `sudo ./install.sh --it87-dkms` installs the current
+  [it87 driver](https://github.com/frankcrawford/it87).
+- If `sudo dmesg` reports an ACPI resource conflict, the kernel parameter `acpi_enforce_resources=lax` helps.
+- Then: `sudo systemctl restart fancontrol-linux` (or "Rescan hardware" in the user interface).
+
+## Command line
+
+```bash
+fancontrol-linuxctl status              # all values
+fancontrol-linuxctl profiles            # list profiles
+fancontrol-linuxctl save Quiet          # save the current settings as a profile
+fancontrol-linuxctl load Quiet          # load a profile (e.g. from a keyboard shortcut or script)
 fancontrol-linuxctl identify nvidia:0:pwm0
 fancontrol-linuxctl calibrate nct6798@platform/nct6775.656:pwm2
 fancontrol-linuxctl export > backup.json
 fancontrol-linuxctl import backup.json
 ```
 
-### Datei-Sensoren
+### File sensors
 
-Ein Skript kann Temperaturen liefern, indem es den Wert (°C, erste Zeile) in eine Datei schreibt:
-
-```bash
-echo 45.5 > /run/fancontrol-linux/sensors/wasser.sensor     # für Mitglieder der Gruppe fancontrol beschreibbar
-```
-
-Anschließend auf der Seite **Sensoren** über + einen Datei-Sensor mit diesem Pfad anlegen.
-Erlaubt sind nur `/run/fancontrol-linux/sensors/`, `/var/lib/fancontrol-linux/sensors/` und `/sys/`.
-
-## Ausprobieren ohne echte Lüfter
+A script can provide temperatures by writing the value (°C, first line) to a file:
 
 ```bash
-./run-demo.sh          # Oberfläche mit simulierter Hardware (Super-I/O-Chip, CPU, AMD-GPU)
-./run-demo.sh --cli    # nur Statusausgabe
+echo 45.5 > /run/fancontrol-linux/sensors/water.sensor     # writable for members of the fancontrol group
 ```
 
-Die Demo braucht kein root und lässt echte Lüfter und die Grafikkarte unberührt.
+Then add a file sensor with this path on the **Sensors** page using +.
+Only `/run/fancontrol-linux/sensors/`, `/var/lib/fancontrol-linux/sensors/` and `/sys/` are allowed.
 
-## Aufbau
+## Trying it without real fans
+
+```bash
+./run-demo.sh          # user interface with simulated hardware (Super I/O chip, CPU, AMD GPU)
+./run-demo.sh --cli    # status output only
+```
+
+The demo needs no root and never touches real fans or the graphics card.
+
+## Project layout
 
 ```
 fancontrol_linux/
-  hwmon.py      Sensoren/PWM über /sys/class/hwmon, stabile IDs, Backends zusammenführen, Unterstützungsübersicht
-  amdgpu.py     AMD RDNA3/4: Lüftersteuerung über die Overdrive-Kurve
-  nvidia.py     NVIDIA über NVML: Temperatur, Drehzahl, Lüftersteuerung
-  liquidctl_backend.py  AIO-Wasserkühlungen und Smart-Hubs über liquidctl
-  thermaltake.py        Thermaltake Riing/G3 über hidraw (experimentell)
-  sensors.py    eigene Sensoren (Mix, Zeitdurchschnitt, Offset, Datei)
-  curves.py     Kurventypen, Hysterese hoch/runter, Auto-Regelung, Sync
-  engine.py     Regelschleife, Feinabstimmung, Anlaufhilfe, RPM-Umrechnung, Kalibrierung, Sicherheitstemperatur
-  config.py     Validierung, Migration älterer Konfigurationen, Profile
-  daemon.py     Dienst, Unix-Socket /run/fancontrol-linux/daemon.sock (Gruppe fancontrol)
-  cli.py        fancontrol-linuxctl
-  gui/          GTK4/libadwaita-Oberfläche (Seiten, Kurveneditor, Themen, Tray)
-tools/fake_hwmon.py   Hardware-Simulator
-tools/make_icons.py   erzeugt die Symbole
-tests/                Unit- und Integrationstests:  python3 -m unittest discover -s tests
+  hwmon.py              sensors/PWM via /sys/class/hwmon, stable IDs, merges the backends, support overview
+  amdgpu.py             AMD RDNA3/4: fan control through the overdrive curve
+  nvidia.py             NVIDIA via NVML: temperature, fan speed, fan control
+  liquidctl_backend.py  AIO liquid coolers and smart hubs via liquidctl
+  thermaltake.py        Thermaltake Riing/G3 via hidraw (experimental)
+  sensors.py            custom sensors (mix, time average, offset, file)
+  curves.py             curve types, hysteresis up/down, auto regulation, sync
+  engine.py             control loop, fine tuning, start assist, RPM conversion, calibration, safety temperature
+  config.py             validation, migration of older configurations, profiles
+  daemon.py             service, Unix socket /run/fancontrol-linux/daemon.sock (group fancontrol)
+  cli.py                fancontrol-linuxctl
+  gui/                  GTK4/libadwaita user interface (pages, curve editor, themes, tray)
+packaging/appimage/     AppImage build
+tools/fake_hwmon.py     hardware simulator
+tools/make_icons.py     generates the icons
+tests/                  unit and integration tests:  python3 -m unittest discover -s tests
 ```
 
-## Lizenz
+## License
 
 MIT

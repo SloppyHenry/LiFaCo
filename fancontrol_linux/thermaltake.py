@@ -153,11 +153,11 @@ class ThermaltakeBackend:
             self.controllers.append(ctl)
             for port in range(1, PORTS + 1):
                 fan_id = f"{key}:fan{port}"
-                fans[fan_id] = TtFan(fan_id, f"Thermaltake {i}: Lüfter {port}", ctl, port)
+                fans[fan_id] = TtFan(fan_id, f"Thermaltake {i}: fan {port}", ctl, port)
                 out_id = f"{key}:pwm{port}"
                 outputs[out_id] = TtOutput(out_id, f"Thermaltake {i}: Port {port}", ctl, port, fan_id)
 
     def info(self):
         if self.error:
-            return f"Fehler: {self.error}"
-        return f"{len(self.controllers)} Controller" if self.controllers else "Keine Controller gefunden"
+            return f"Error: {self.error}"
+        return f"{len(self.controllers)} controller(s)" if self.controllers else "No controllers found"

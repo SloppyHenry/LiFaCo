@@ -27,15 +27,15 @@ class Nvml:
     def __init__(self):
         self.lib = ctypes.CDLL("libnvidia-ml.so.1")
         if self.lib.nvmlInit_v2() != NVML_SUCCESS:
-            raise OSError("nvmlInit fehlgeschlagen")
+            raise OSError("nvmlInit failed")
 
     def _call(self, name, *args):
         fn = getattr(self.lib, name, None)
         if fn is None:
-            raise OSError(f"{name} nicht verfügbar")
+            raise OSError(f"{name} not available")
         rc = fn(*args)
         if rc != NVML_SUCCESS:
-            raise OSError(f"{name}: NVML-Fehler {rc}")
+            raise OSError(f"{name}: NVML error {rc}")
 
     def devices(self):
         count = ctypes.c_uint()
@@ -202,12 +202,12 @@ def scan(temps, fans, outputs):
         temps[sid] = NvidiaTemp(sid, name, nvml, h)
         for f in range(nvml.num_fans(h)):
             rpm_id = f"nvidia:{i}:fan{f}"
-            rpm = NvidiaFanRpm(rpm_id, f"{name}: Lüfter {f + 1}", nvml, h, f)
+            rpm = NvidiaFanRpm(rpm_id, f"{name}: fan {f + 1}", nvml, h, f)
             has_rpm = rpm.read() is not None
             if has_rpm:
                 fans[rpm_id] = rpm
             out_id = f"nvidia:{i}:pwm{f}"
-            outputs[out_id] = NvidiaFanOutput(out_id, f"{name}: Lüfter {f + 1}", nvml, h, f,
+            outputs[out_id] = NvidiaFanOutput(out_id, f"{name}: fan {f + 1}", nvml, h, f,
                                               rpm_id if has_rpm else None)
 
 

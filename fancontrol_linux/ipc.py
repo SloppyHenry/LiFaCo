@@ -33,18 +33,18 @@ class Client:
                 s.sendall(request)
                 data = read_line(s)
         except FileNotFoundError:
-            raise DaemonUnavailable("Der Dienst läuft nicht (Socket nicht gefunden).") from None
+            raise DaemonUnavailable("The service is not running (socket not found).") from None
         except PermissionError:
             raise DaemonUnavailable(
-                "Keine Berechtigung für den Dienst. Ist dein Benutzer in der Gruppe 'fancontrol'? "
-                "(Nach dem Hinzufügen neu anmelden.)") from None
+                "No permission to access the service. Is your user in the 'fancontrol' group? "
+                "(Log out and back in after adding it.)") from None
         except (ConnectionRefusedError, socket.timeout, OSError) as e:
-            raise DaemonUnavailable(f"Dienst nicht erreichbar: {e}") from None
+            raise DaemonUnavailable(f"Service unreachable: {e}") from None
         if not data:
-            raise DaemonUnavailable("Leere Antwort vom Dienst")
+            raise DaemonUnavailable("Empty reply from the service")
         reply = json.loads(data)
         if not reply.get("ok"):
-            raise DaemonError(reply.get("error", "Unbekannter Fehler"))
+            raise DaemonError(reply.get("error", "Unknown error"))
         return reply.get("data")
 
 
@@ -59,5 +59,5 @@ def read_line(sock):
         if chunk.endswith(b"\n"):
             break
         if size > MAX_MESSAGE:
-            raise ValueError("Nachricht zu groß")
+            raise ValueError("Message too large")
     return b"".join(chunks)

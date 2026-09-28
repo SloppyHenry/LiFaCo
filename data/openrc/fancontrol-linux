@@ -1,8 +1,8 @@
 #!/sbin/openrc-run
-# FanControl for Linux – Hintergrunddienst (OpenRC)
+# Linux FanControl – background service (OpenRC)
 
-name="FanControl for Linux"
-description="Lüftersteuerung"
+name="Linux FanControl"
+description="Fan control"
 command="/usr/local/bin/fancontrol-linuxd"
 command_background=true
 pidfile="/run/${RC_SVCNAME}.pid"

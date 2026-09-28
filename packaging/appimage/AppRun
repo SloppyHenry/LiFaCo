@@ -1,13 +1,13 @@
 #!/bin/sh
-# Einstieg des AppImages. Startet die Oberfläche; weitere Modi:
-#   --install [Optionen]   Dienst + Hardware einrichten (als root; Optionen wie install.sh)
-#   --uninstall [--purge]  wieder entfernen (als root)
-#   --daemon               Hintergrunddienst (wird vom installierten Dienst verwendet)
-#   --ctl <befehl>         Kommandozeile (wie fancontrol-linuxctl)
+# AppImage entry point. Starts the user interface; other modes:
+#   --install [options]    set up service + hardware (as root; same options as install.sh)
+#   --uninstall [--purge]  remove again (as root)
+#   --daemon               background service (used by the installed service)
+#   --ctl <command>        command line (like fancontrol-linuxctl)
 HERE="$(dirname "$(readlink -f "$0")")"
 APP="$HERE/usr/lib/fancontrol-linux"
 
-# Installer laufen mit dem Python/der Umgebung des Systems – vor dem Setzen der Bundle-Variablen.
+# The installers run with the system's Python/environment – before the bundle variables are set.
 case "${1:-}" in
     --install) shift; exec bash "$APP/install.sh" --appimage "$HERE" "$@" ;;
     --uninstall) shift; exec bash "$APP/uninstall.sh" "$@" ;;
@@ -22,18 +22,18 @@ export GSETTINGS_SCHEMA_DIR="$HERE/usr/share/glib-2.0/schemas"
 export GSETTINGS_BACKEND=memory
 export GIO_MODULE_DIR="$LIB/gio/modules"
 export XDG_DATA_DIRS="$HERE/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-# Kein OpenGL/Vulkan: die Grafiktreiber des Systems passen nicht zu den mitgelieferten Bibliotheken.
+# No OpenGL/Vulkan: the system's graphics drivers do not match the bundled libraries.
 export GSK_RENDERER="${GSK_RENDERER:-cairo}"
 export GDK_DISABLE="${GDK_DISABLE:-gl,vulkan}"
 export FANCONTROL_APPIMAGE_DIR="$HERE"
 
-# Der gdk-pixbuf-Cache enthält absolute Pfade und muss auf den Mountpunkt umgeschrieben werden.
+# The gdk-pixbuf cache contains absolute paths and must be rewritten to the mount point.
 CACHE="${XDG_RUNTIME_DIR:-/tmp}/fancontrol-linux-pixbuf-$(id -u).cache"
 if sed "s|/usr/lib/x86_64-linux-gnu|$LIB|g" "$LIB/gdk-pixbuf-2.0/2.10.0/loaders.cache" > "$CACHE" 2>/dev/null; then
     export GDK_PIXBUF_MODULE_FILE="$CACHE"
 fi
 
-# Schriften: die Konfiguration des Systems einbinden, die mitgelieferte Ersatzschrift nur ergänzen.
+# Fonts: include the system configuration, the bundled fallback font only complements it.
 FONTS_CONF="${XDG_RUNTIME_DIR:-/tmp}/fancontrol-linux-fonts-$(id -u).conf"
 cat > "$FONTS_CONF" 2>/dev/null <<FONTCONF && export FONTCONFIG_FILE="$FONTS_CONF"
 <?xml version="1.0"?>
@@ -45,7 +45,7 @@ cat > "$FONTS_CONF" 2>/dev/null <<FONTCONF && export FONTCONFIG_FILE="$FONTS_CON
 </fontconfig>
 FONTCONF
 
-# Eigener Loader + glibc, damit das AppImage auch auf älteren Systemen (Debian 12, Ubuntu 22.04) läuft.
+# Bundled loader + glibc so the AppImage also runs on older systems (Debian 12, Ubuntu 22.04).
 run() {
     exec "$LIB/ld-linux-x86-64.so.2" --library-path "$LIB:$HERE/usr/lib" "$HERE/usr/bin/python3" "$@"
 }

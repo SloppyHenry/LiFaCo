@@ -58,20 +58,20 @@ class DesignPage(Adw.Bin):
         prefs = self.win.prefs
         page = Adw.PreferencesPage()
 
-        general = Adw.PreferencesGroup(title="Allgemein")
+        general = Adw.PreferencesGroup(title="General")
         keys = [k for k, _n, _s in thememod.SCHEMES]
         current = prefs.get("theme")
 
         def set_scheme(i):
             prefs.set("theme", keys[i])
             self.win.apply_theme()
-        general.add(combo_row("Hell / Dunkel", [n for _k, n, _s in thememod.SCHEMES],
+        general.add(combo_row("Light / dark", [n for _k, n, _s in thememod.SCHEMES],
                               keys.index(current) if current in keys else 0, set_scheme))
-        general.add(combo_row("Temperatureinheit", ["Celsius (°C)", "Fahrenheit (°F)"],
+        general.add(combo_row("Temperature unit", ["Celsius (°C)", "Fahrenheit (°F)"],
                               1 if prefs.get("fahrenheit") else 0, self.win.set_fahrenheit))
         page.add(general)
 
-        palettes = Adw.PreferencesGroup(title="Farbthema", description="Akzentfarbe, Kacheln und Kopfzeile")
+        palettes = Adw.PreferencesGroup(title="Colour theme", description="Accent colour, cards and header bar")
         active = prefs.get("palette") or "classic"
         first = None
         custom = dict(thememod.DEFAULT_CUSTOM, **(prefs.get("custom_colors") or {}))
@@ -90,17 +90,17 @@ class DesignPage(Adw.Bin):
             elif accent:
                 row.add_suffix(Swatch([accent, card, header]))
             else:
-                row.set_subtitle("Systemfarben")
+                row.set_subtitle("System colours")
             palettes.add(row)
         page.add(palettes)
 
-        custom_group = Adw.PreferencesGroup(title="Eigene Farben",
-                                            description="Eine Änderung hier aktiviert automatisch „Eigene Farben“")
-        for key, title in (("accent", "Akzentfarbe"), ("card", "Kacheln"), ("header", "Kopfzeile")):
+        custom_group = Adw.PreferencesGroup(title="Custom colours",
+                                            description="Changing a colour here switches to “Custom colours”")
+        for key, title in (("accent", "Accent colour"), ("card", "Cards"), ("header", "Header bar")):
             row = Adw.ActionRow(title=title)
             row.add_suffix(_color_button(custom[key], lambda color, k=key: self._set_custom(k, color)))
             custom_group.add(row)
-        reset = Gtk.Button(label="Zurücksetzen", css_classes=["flat"], valign=Gtk.Align.CENTER)
+        reset = Gtk.Button(label="Reset", css_classes=["flat"], valign=Gtk.Align.CENTER)
         reset.connect("clicked", lambda *_: self._reset_custom())
         custom_group.set_header_suffix(reset)
         page.add(custom_group)
@@ -135,24 +135,24 @@ class TrayPage(Adw.Bin):
         win, prefs = self.win, self.win.prefs
         page = Adw.PreferencesPage()
         general = Adw.PreferencesGroup(
-            title="Tray", description="Symbole im Systemabschnitt der Kontrollleiste (KDE, Xfce, Cinnamon, "
-                                      "GNOME mit AppIndicator-Erweiterung …)")
-        general.add(switch_row("Tray-Symbol anzeigen", prefs.get("tray_enabled"), win.set_tray_enabled,
-                               subtitle="Beim Schließen des Fensters läuft FanControl im Tray weiter"))
-        general.add(switch_row("Beim Anmelden im Tray starten", os.path.exists(AUTOSTART_FILE), self._set_autostart,
-                               subtitle="Die Lüfter regelt der Dienst ohnehin – das betrifft nur die Oberfläche"))
+            title="Tray", description="Icons in the system tray of the panel (KDE, Xfce, Cinnamon, "
+                                      "GNOME with the AppIndicator extension …)")
+        general.add(switch_row("Show tray icon", prefs.get("tray_enabled"), win.set_tray_enabled,
+                               subtitle="Closing the window keeps Linux FanControl running in the tray"))
+        general.add(switch_row("Start in the tray at login", os.path.exists(AUTOSTART_FILE), self._set_autostart,
+                               subtitle="The service controls the fans anyway – this only affects the user interface"))
         page.add(general)
 
-        icons = Adw.PreferencesGroup(title="Werte als Tray-Symbole",
-                                     description="Jeder gewählte Sensor bekommt ein eigenes Symbol mit seinem Wert")
+        icons = Adw.PreferencesGroup(title="Values as tray icons",
+                                     description="Every selected sensor gets its own icon showing its value")
         entries = {e["id"]: e for e in prefs.get("tray_sensors") or []}
         st = win.status or {"temps": {}, "pwms": {}, "fans": {}}
         items = [(sid, "temps") for sid in st["temps"]] + [(sid, "pwms") for sid in st["pwms"]] \
             + [(sid, "fans") for sid in st["fans"]]
         if not items:
-            icons.add(Adw.ActionRow(title="Keine Sensoren (Dienst nicht verbunden?)"))
+            icons.add(Adw.ActionRow(title="No sensors (service not connected?)"))
         for sid, kind in items:
-            unit = {"temps": "Temperatur", "pwms": "Drehzahl %", "fans": "RPM"}[kind]
+            unit = {"temps": "Temperature", "pwms": "Speed %", "fans": "RPM"}[kind]
             row = Adw.ActionRow(title=win.display_name(sid), subtitle=unit)
             entry = entries.get(sid)
             row.add_suffix(_color_button(entry["color"] if entry else TRAY_DEFAULT_COLOR,
@@ -186,7 +186,7 @@ class TrayPage(Adw.Bin):
         if enabled:
             os.makedirs(os.path.dirname(AUTOSTART_FILE), exist_ok=True)
             with open(AUTOSTART_FILE, "w") as f:
-                f.write("[Desktop Entry]\nType=Application\nName=FanControl (Tray)\n"
+                f.write("[Desktop Entry]\nType=Application\nName=Linux FanControl (tray)\n"
                         f"Exec=fancontrol-linux --hidden\nIcon={APP_ID}\nX-GNOME-Autostart-enabled=true\n")
             if not self.win.prefs.get("tray_enabled"):
                 self.win.set_tray_enabled(True)
@@ -208,23 +208,23 @@ class SettingsPage(Adw.Bin):
         page = Adw.PreferencesPage()
         if win.config:
             settings = win.config["settings"]
-            group = Adw.PreferencesGroup(title="Regelung", description="Gilt für den Hintergrunddienst")
+            group = Adw.PreferencesGroup(title="Control", description="Applies to the background service")
 
             def set_setting(key):
                 def apply(value):
                     settings[key] = value
                     win.config_changed()
                 return apply
-            group.add(spin_row("Aktualisierungsintervall s", settings["interval"], 0.2, 10, 0.1,
+            group.add(spin_row("Update interval s", settings["interval"], 0.2, 10, 0.1,
                                set_setting("interval"), digits=1))
-            group.add(temp_spin_row("Sicherheitstemperatur", settings["safety_temp"], 0, 150,
+            group.add(temp_spin_row("Safety temperature", settings["safety_temp"], 0, 150,
                                     set_setting("safety_temp"),
-                                    subtitle="Erreicht ein verwendeter Sensor diesen Wert, laufen alle Lüfter auf 100 % (0 = aus)"))
+                                    subtitle="If a sensor in use reaches this value, all fans run at 100 % (0 = off)"))
             page.add(group)
 
         support = Adw.PreferencesGroup(
-            title="Hardware-Unterstützung",
-            description="Welche Gerätegruppen erkannt wurden und was ggf. noch fehlt")
+            title="Hardware support",
+            description="Which device groups were detected and what may still be missing")
         icons = {"ok": "object-select-symbolic", "warn": "dialog-warning-symbolic", "off": "list-remove-symbolic"}
         for row_info in (win.status or {}).get("support", []):
             row = Adw.ActionRow(title=row_info["name"], subtitle=row_info["detail"], subtitle_lines=3)
@@ -241,24 +241,24 @@ class SettingsPage(Adw.Bin):
                     settings[key] = value
                     win.config_changed()
                 return apply
-            support.add(switch_row("liquidctl verwenden", settings.get("liquidctl", True), set_backend("liquidctl"),
-                                   subtitle="AIO-Wasserkühlungen und Smart-Hubs (NZXT, Corsair, ASUS, MSI …)"))
-            support.add(switch_row("Thermaltake-Controller (experimentell)", settings.get("thermaltake", False),
+            support.add(switch_row("Use liquidctl", settings.get("liquidctl", True), set_backend("liquidctl"),
+                                   subtitle="AIO liquid coolers and smart hubs (NZXT, Corsair, ASUS, MSI …)"))
+            support.add(switch_row("Thermaltake controllers (experimental)", settings.get("thermaltake", False),
                                    set_backend("thermaltake"),
-                                   subtitle="Riing-/G3-Controller über USB – ungetestet, auf eigene Gefahr"))
+                                   subtitle="Riing/G3 controllers over USB – untested, use at your own risk"))
         page.add(support)
 
-        view = Adw.PreferencesGroup(title="Ansicht")
-        view.add(switch_row("Ausgeblendete Kacheln anzeigen", win.prefs.get("show_hidden"), win.set_show_hidden))
+        view = Adw.PreferencesGroup(title="View")
+        view.add(switch_row("Show hidden cards", win.prefs.get("show_hidden"), win.set_show_hidden))
         page.add(view)
 
-        hw = Adw.PreferencesGroup(title="Hardware und Konfiguration")
+        hw = Adw.PreferencesGroup(title="Hardware and configuration")
         for title, subtitle, label, callback in (
-                ("Hardware neu erkennen", "Nach dem Laden neuer Treiber oder Einstecken von Geräten",
-                 "Suchen", win.rescan),
-                ("Einrichtungsassistent", "Standardkurven anlegen und allen Lüftern zuweisen",
-                 "Starten", win.setup_wizard),
-                ("Tastenkürzel", "Übersicht aller Tastenkombinationen", "Anzeigen", win.show_shortcuts)):
+                ("Rescan hardware", "After loading new drivers or plugging in devices",
+                 "Rescan", win.rescan),
+                ("Setup assistant", "Create default curves and assign them to all fans",
+                 "Start", win.setup_wizard),
+                ("Keyboard shortcuts", "Overview of all shortcuts", "Show", win.show_shortcuts)):
             row = Adw.ActionRow(title=title, subtitle=subtitle)
             button = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
             button.connect("clicked", lambda *_a, cb=callback: cb())
@@ -266,8 +266,8 @@ class SettingsPage(Adw.Bin):
             hw.add(row)
         page.add(hw)
 
-        service = Adw.PreferencesGroup(title="Dienst")
-        state = "verbunden" if win.connected else "nicht erreichbar"
+        service = Adw.PreferencesGroup(title="Service")
+        state = "connected" if win.connected else "unreachable"
         service.add(Adw.ActionRow(title="fancontrol-linux.service", subtitle=f"Status: {state}"))
         page.add(service)
         self.set_child(page)
@@ -276,13 +276,13 @@ class SettingsPage(Adw.Bin):
 class AboutPage(Adw.Bin):
     def __init__(self, win):
         super().__init__()
-        page = Adw.StatusPage(icon_name=APP_ID, title="FanControl for Linux",
-                              description=f"Version {__version__}\n\nLüftersteuerung für Linux über hwmon und NVML – "
-                                          "Kurven, eigene Sensoren, Profile, Kalibrierung, Tray und Hintergrunddienst.\n"
-                                          "Angelehnt an FanControl für Windows, eigenständig neu entwickelt.")
-        button = Gtk.Button(label="Lizenz und Details", halign=Gtk.Align.CENTER, css_classes=["pill"])
+        page = Adw.StatusPage(icon_name=APP_ID, title="Linux FanControl",
+                              description=f"Version {__version__}\n\nFan control for Linux via hwmon, NVML and liquidctl – "
+                                          "curves, custom sensors, profiles, calibration, tray and background service.\n"
+                                          "Inspired by FanControl for Windows, developed independently.")
+        button = Gtk.Button(label="License and details", halign=Gtk.Align.CENTER, css_classes=["pill"])
         button.connect("clicked", lambda *_: Adw.AboutDialog(
-            application_name="FanControl for Linux", application_icon=APP_ID, version=__version__,
-            comments="Lüftersteuerung für Linux über hwmon und NVML.", license_type=Gtk.License.MIT_X11).present(win))
+            application_name="Linux FanControl", application_icon=APP_ID, version=__version__,
+            comments="Fan control for Linux via hwmon, NVML and liquidctl.", license_type=Gtk.License.MIT_X11).present(win))
         page.set_child(button)
         self.set_child(page)

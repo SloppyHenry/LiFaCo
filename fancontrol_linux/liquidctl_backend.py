@@ -150,7 +150,7 @@ class LiquidctlBackend:
                 dev.connect()
                 dev.initialize()
             except Exception as e:
-                log.warning("liquidctl %s nicht initialisierbar: %s", getattr(dev, "description", "?"), e)
+                log.warning("liquidctl %s could not be initialized: %s", getattr(dev, "description", "?"), e)
                 continue
             base = _slug(dev.description)
             seen[base] = seen.get(base, 0) + 1
@@ -174,7 +174,7 @@ class LiquidctlBackend:
 
     def info(self):
         if self.error:
-            return f"Fehler: {self.error}"
+            return f"Error: {self.error}"
         if not self.devices:
-            return "Keine unterstützten Geräte gefunden"
+            return "No supported devices found"
         return ", ".join(d.name for d in self.devices)

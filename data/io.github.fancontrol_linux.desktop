@@ -1,8 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=FanControl
-GenericName=Lüftersteuerung
-Comment=Lüfterkurven, Profile und Kalibrierung für Linux
+Name=Linux FanControl
+GenericName=Fan control
+GenericName[de]=Lüftersteuerung
+Comment=Fan curves, profiles and calibration for Linux
+Comment[de]=Lüfterkurven, Profile und Kalibrierung für Linux
 Exec=fancontrol-linux
 Icon=io.github.fancontrol_linux
 Terminal=false

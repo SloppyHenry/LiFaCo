@@ -104,8 +104,8 @@ class Tray:
         except GLib.Error:
             self.bus = None
             return False
-        self._add_item("main", _Item("/org/fancontrol_linux/Tray/main", "FanControl", icon_name=APP_ID,
-                                     tooltip=("FanControl", "")))
+        self._add_item("main", _Item("/org/fancontrol_linux/Tray/main", "Linux FanControl", icon_name=APP_ID,
+                                     tooltip=("Linux FanControl", "")))
         self.watch_id = Gio.bus_watch_name_on_connection(self.bus, WATCHER, Gio.BusNameWatcherFlags.NONE,
                                                          lambda *_: self._register_all(), None)
         return True
@@ -174,12 +174,12 @@ class Tray:
     def _menu_items(self):
         items = {
             0: ({"children-display": GLib.Variant("s", "submenu")}, [1, 2, 3, 4, 5]),
-            1: ({"label": GLib.Variant("s", "FanControl öffnen")}, []),
+            1: ({"label": GLib.Variant("s", "Open Linux FanControl")}, []),
             2: ({"type": GLib.Variant("s", "separator")}, []),
-            3: ({"label": GLib.Variant("s", "Profil"), "children-display": GLib.Variant("s", "submenu"),
+            3: ({"label": GLib.Variant("s", "Profile"), "children-display": GLib.Variant("s", "submenu"),
                  "enabled": GLib.Variant("b", bool(self.profiles))}, [100 + i for i in range(len(self.profiles))]),
             4: ({"type": GLib.Variant("s", "separator")}, []),
-            5: ({"label": GLib.Variant("s", "Beenden (Lüfterregelung läuft weiter)")}, []),
+            5: ({"label": GLib.Variant("s", "Quit (fan control keeps running)")}, []),
         }
         for i, name in enumerate(self.profiles):
             items[100 + i] = ({"label": GLib.Variant("s", name.replace("_", "__")),

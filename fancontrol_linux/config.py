@@ -60,7 +60,7 @@ CUSTOM_DEFAULTS = {
     "mix": {"sensors": [], "function": "max", "allow_missing": False},
     "average": {"sensor": None, "seconds": 30.0},
     "offset": {"sensor": None, "offset": 0.0, "proportional": False},
-    "file": {"path": "/run/fancontrol-linux/sensors/beispiel.sensor"},
+    "file": {"path": "/run/fancontrol-linux/sensors/example.sensor"},
 }
 
 
@@ -77,13 +77,13 @@ def new_id():
 
 
 def empty_config():
-    return {"version": CONFIG_VERSION, "profile": "Standard", "settings": dict(DEFAULT_SETTINGS),
+    return {"version": CONFIG_VERSION, "profile": "Default", "settings": dict(DEFAULT_SETTINGS),
             "curves": [], "controls": [], "custom_sensors": [], "sensor_names": {}, "hidden": []}
 
 
 def new_curve(kind, name, sensors=None):
     if kind not in CURVE_TYPES:
-        raise ConfigError(f"Unbekannter Kurventyp: {kind}")
+        raise ConfigError(f"Unknown curve type: {kind}")
     curve = {"id": new_id(), "name": name, "type": kind, "unit": "percent"}
     curve.update(copy.deepcopy(CURVE_DEFAULTS[kind]))
     if kind in TEMP_CURVES:
@@ -94,7 +94,7 @@ def new_curve(kind, name, sensors=None):
 
 def new_custom_sensor(kind, name, source=None):
     if kind not in CUSTOM_TYPES:
-        raise ConfigError(f"Unbekannter Sensortyp: {kind}")
+        raise ConfigError(f"Unknown sensor type: {kind}")
     sensor = {"id": new_id(), "name": name, "type": kind}
     sensor.update(copy.deepcopy(CUSTOM_DEFAULTS[kind]))
     if source and kind == "mix":
@@ -108,9 +108,9 @@ def _num(value, lo, hi, field):
     try:
         v = float(value)
     except (TypeError, ValueError):
-        raise ConfigError(f"{field}: Zahl erwartet") from None
+        raise ConfigError(f"{field}: number expected") from None
     if v != v or not lo <= v <= hi:
-        raise ConfigError(f"{field}: muss zwischen {lo:g} und {hi:g} liegen")
+        raise ConfigError(f"{field}: must be between {lo:g} and {hi:g}")
     return v
 
 
@@ -138,10 +138,10 @@ def _migrate_control(raw):
 def _custom_sensor(raw, ids):
     kind = raw.get("type")
     if kind not in CUSTOM_TYPES:
-        raise ConfigError(f"Unbekannter Sensortyp: {kind}")
+        raise ConfigError(f"Unknown sensor type: {kind}")
     sid = str(raw.get("id") or new_id())
     if sid in ids:
-        raise ConfigError(f"Doppelte Sensor-ID: {sid}")
+        raise ConfigError(f"Duplicate sensor ID: {sid}")
     ids.add(sid)
     out = {"id": sid, "name": str(raw.get("name") or kind), "type": kind}
     for key, default in CUSTOM_DEFAULTS[kind].items():
@@ -149,11 +149,11 @@ def _custom_sensor(raw, ids):
     if kind == "mix":
         out["sensors"] = [str(x) for x in out["sensors"]]
         if out["function"] not in MIX_FUNCTIONS:
-            raise ConfigError(f"Ungültige Funktion: {out['function']}")
+            raise ConfigError(f"Invalid function: {out['function']}")
         out["allow_missing"] = bool(out["allow_missing"])
     elif kind == "average":
         out["sensor"] = str(out["sensor"]) if out["sensor"] else None
-        out["seconds"] = _num(out["seconds"], 1, 3600, "Zeitraum")
+        out["seconds"] = _num(out["seconds"], 1, 3600, "time span")
     elif kind == "offset":
         out["sensor"] = str(out["sensor"]) if out["sensor"] else None
         out["offset"] = _num(out["offset"], -100, 100, "Offset")
@@ -161,17 +161,17 @@ def _custom_sensor(raw, ids):
     elif kind == "file":
         out["path"] = str(out["path"])
         if not file_path_allowed(out["path"]):
-            raise ConfigError(f"Datei-Sensor '{out['name']}': erlaubt sind nur Dateien unter "
-                              "/run/fancontrol-linux/sensors/, /var/lib/fancontrol-linux/sensors/ oder /sys/")
+            raise ConfigError(f"File sensor '{out['name']}': only files below /run/fancontrol-linux/sensors/, "
+                              "/var/lib/fancontrol-linux/sensors/ or /sys/ are allowed")
     return out
 
 
 def normalize(cfg):
     """Validate a config coming from disk or a client and fill in defaults. Raises ConfigError."""
     if not isinstance(cfg, dict):
-        raise ConfigError("Konfiguration muss ein Objekt sein")
+        raise ConfigError("Configuration must be an object")
     out = empty_config()
-    out["profile"] = str(cfg.get("profile") or "Standard")
+    out["profile"] = str(cfg.get("profile") or "Default")
     settings = cfg.get("settings") or {}
     out["settings"]["interval"] = _num(settings.get("interval", 1.0), 0.2, 10, "interval")
     out["settings"]["safety_temp"] = _num(settings.get("safety_temp", 95.0), 0, 150, "safety_temp")
@@ -190,15 +190,15 @@ def normalize(cfg):
         raw = _migrate_curve(raw)
         kind = raw.get("type")
         if kind not in CURVE_TYPES:
-            raise ConfigError(f"Unbekannter Kurventyp: {kind}")
+            raise ConfigError(f"Unknown curve type: {kind}")
         cid = str(raw.get("id") or new_id())
         if cid in curve_ids:
-            raise ConfigError(f"Doppelte Kurven-ID: {cid}")
+            raise ConfigError(f"Duplicate curve ID: {cid}")
         curve_ids.add(cid)
         curve = {"id": cid, "name": str(raw.get("name") or kind), "type": kind,
                  "unit": raw.get("unit", "percent")}
         if curve["unit"] not in ("percent", "rpm"):
-            raise ConfigError(f"Ungültige Einheit: {curve['unit']}")
+            raise ConfigError(f"Invalid unit: {curve['unit']}")
         top = MAX_RPM if curve["unit"] == "rpm" else 100.0
         for key, default in CURVE_DEFAULTS[kind].items():
             curve[key] = copy.deepcopy(raw.get(key, default))
@@ -207,16 +207,16 @@ def normalize(cfg):
             curve["sensors"] = [str(s) for s in raw.get("sensors") or []]
             curve["sensor_mix"] = raw.get("sensor_mix", "max")
             if curve["sensor_mix"] not in MIX_FUNCTIONS:
-                raise ConfigError(f"Ungültige Sensor-Kombination: {curve['sensor_mix']}")
+                raise ConfigError(f"Invalid sensor combination: {curve['sensor_mix']}")
         if kind == "graph":
-            pts = [[_num(p[0], -50, 150, "Kurvenpunkt °C"), _num(p[1], 0, top, "Kurvenpunkt")]
+            pts = [[_num(p[0], -50, 150, "curve point °C"), _num(p[1], 0, top, "curve point")]
                    for p in curve["points"]]
             if not pts:
-                raise ConfigError(f"Kurve '{name}' braucht mindestens einen Punkt")
+                raise ConfigError(f"Curve '{name}' needs at least one point")
             curve["points"] = sorted(pts)
-            lo, hi = (_num(v, -50, 150, "Temperaturbereich") for v in curve["temp_axis"])
+            lo, hi = (_num(v, -50, 150, "temperature range") for v in curve["temp_axis"])
             if hi - lo < 10:
-                raise ConfigError(f"Kurve '{name}': Temperaturbereich muss mindestens 10 °C umfassen")
+                raise ConfigError(f"Curve '{name}': the temperature range must span at least 10 °C")
             curve["temp_axis"] = [lo, hi]
         if kind == "linear":
             for key in ("temp_min", "temp_max"):
@@ -224,18 +224,18 @@ def normalize(cfg):
             for key in ("speed_min", "speed_max"):
                 curve[key] = _num(curve[key], 0, top, key)
             if curve["temp_max"] <= curve["temp_min"]:
-                raise ConfigError(f"Kurve '{name}': Max-Temperatur muss über Min-Temperatur liegen")
+                raise ConfigError(f"Curve '{name}': max temperature must be above min temperature")
         if kind == "flat":
             curve["value"] = _num(curve["value"], 0, top, "value")
         if kind == "mix":
             curve["curves"] = [str(c) for c in curve["curves"]]
             if curve["function"] not in MIX_FUNCTIONS:
-                raise ConfigError(f"Ungültige Mix-Funktion: {curve['function']}")
+                raise ConfigError(f"Invalid mix function: {curve['function']}")
         if kind in ("trigger", "auto"):
             for key in ("idle_temp", "load_temp"):
                 curve[key] = _num(curve[key], -50, 150, key)
             if curve["load_temp"] <= curve["idle_temp"]:
-                raise ConfigError(f"Kurve '{name}': Last-Temperatur muss über Leerlauf-Temperatur liegen")
+                raise ConfigError(f"Curve '{name}': load temperature must be above idle temperature")
         if kind == "trigger":
             for key in ("idle_speed", "load_speed"):
                 curve[key] = _num(curve[key], 0, top, key)
@@ -243,7 +243,7 @@ def normalize(cfg):
             for key in ("min_speed", "max_speed"):
                 curve[key] = _num(curve[key], 0, top, key)
             if curve["max_speed"] < curve["min_speed"]:
-                raise ConfigError(f"Kurve '{name}': Max. Drehzahl muss ≥ Min. Drehzahl sein")
+                raise ConfigError(f"Curve '{name}': max speed must be ≥ min speed")
             curve["step"] = _num(curve["step"], 0.1, 100 if top == 100 else 2000, "step")
             curve["deadband"] = _num(curve["deadband"], 0, 20, "deadband")
         if kind == "sync":
@@ -269,7 +269,7 @@ def normalize(cfg):
         raw = _migrate_control(raw)
         cid = str(raw.get("id") or "")
         if not cid or cid in control_ids:
-            raise ConfigError("Steuerung ohne oder mit doppelter ID")
+            raise ConfigError("Control with missing or duplicate ID")
         control_ids.add(cid)
         ctl = {"id": cid}
         for key, default in DEFAULT_CONTROL.items():
@@ -279,13 +279,13 @@ def normalize(cfg):
         ctl["enabled"] = bool(ctl["enabled"])
         ctl["force_apply"] = bool(ctl["force_apply"])
         if ctl["mode"] not in ("curve", "manual"):
-            raise ConfigError(f"Steuerung '{label}': ungültiger Modus")
+            raise ConfigError(f"Control '{label}': invalid mode")
         if ctl["curve"] not in curve_ids:
             ctl["curve"] = None
         for key in ("min_percent", "max_percent", "start_percent", "stop_percent", "manual_percent"):
             ctl[key] = _num(ctl[key], 0, 100, key)
         if ctl["max_percent"] < ctl["min_percent"]:
-            raise ConfigError(f"Steuerung '{label}': Max % muss ≥ Min % sein")
+            raise ConfigError(f"Control '{label}': max % must be ≥ min %")
         ctl["offset"] = _num(ctl["offset"], -100, 100, "offset")
         ctl["step_up"] = _num(ctl["step_up"], 0, 100, "step_up")
         ctl["step_down"] = _num(ctl["step_down"], 0, 100, "step_down")
@@ -300,10 +300,10 @@ def normalize(cfg):
         cal = ctl["calibration"]
         if cal is not None:
             try:
-                curve = sorted([_num(p, 0, 100, "Kalibrierung %"), _num(r, 0, 100000, "Kalibrierung RPM")]
+                curve = sorted([_num(p, 0, 100, "calibration %"), _num(r, 0, 100000, "calibration RPM")]
                                for p, r in cal["rpm_curve"])
             except (KeyError, TypeError, ValueError):
-                raise ConfigError(f"Steuerung '{label}': ungültige Kalibrierung") from None
+                raise ConfigError(f"Control '{label}': invalid calibration") from None
             ctl["calibration"] = {"rpm_curve": curve}
         out["controls"].append(ctl)
     return out
@@ -353,7 +353,7 @@ _PROFILE_NAME = re.compile(r"^[\w .()+-]{1,64}$")
 def _profile_path(name):
     name = (name or "").strip()
     if not _PROFILE_NAME.match(name) or name.startswith("."):
-        raise ConfigError("Ungültiger Profilname (erlaubt: Buchstaben, Zahlen, Leerzeichen, . ( ) + - _)")
+        raise ConfigError("Invalid profile name (allowed: letters, digits, spaces, . ( ) + - _)")
     return os.path.join(profiles_dir(), name + ".json")
 
 
@@ -376,7 +376,7 @@ def load_profile(name):
         with open(_profile_path(name)) as f:
             cfg = normalize(json.load(f))
     except FileNotFoundError:
-        raise ConfigError(f"Profil '{name}' existiert nicht") from None
+        raise ConfigError(f"Profile '{name}' does not exist") from None
     cfg["profile"] = name.strip()
     return cfg
 
@@ -385,4 +385,4 @@ def delete_profile(name):
     try:
         os.unlink(_profile_path(name))
     except FileNotFoundError:
-        raise ConfigError(f"Profil '{name}' existiert nicht") from None
+        raise ConfigError(f"Profile '{name}' does not exist") from None

@@ -26,7 +26,7 @@ class Daemon:
         try:
             cfg = cfgmod.load_config()
         except (cfgmod.ConfigError, ValueError) as e:
-            log.error("Konfiguration ungültig, starte leer: %s", e)
+            log.error("Invalid configuration, starting empty: %s", e)
             cfg = cfgmod.empty_config()
         self.hw = hardware or Hardware(settings=cfg["settings"])
         self.engine = Engine(self.hw, cfg)
@@ -36,7 +36,7 @@ class Daemon:
         cmd = request.get("cmd")
         handler = getattr(self, f"cmd_{cmd}", None) if isinstance(cmd, str) else None
         if handler is None:
-            raise ValueError(f"Unbekannter Befehl: {cmd}")
+            raise ValueError(f"Unknown command: {cmd}")
         with self.lock:
             return handler(request)
 
@@ -90,7 +90,7 @@ class Daemon:
 
     # --- loop -----------------------------------------------------------
     def run(self):
-        log.info("Gestartet: %d Temperatursensoren, %d Lüftersensoren, %d PWM-Ausgänge",
+        log.info("Started: %d temperature sensors, %d fan sensors, %d fan outputs",
                  len(self.hw.temps), len(self.hw.fans), len(self.hw.pwms))
         try:
             while not self.stop_event.is_set():
@@ -102,24 +102,24 @@ class Daemon:
                     try:
                         self.engine.tick()
                     except Exception:
-                        log.exception("Fehler im Regelzyklus")
+                        log.exception("Error in control cycle")
                     interval = self.engine.config["settings"]["interval"]
                 self.stop_event.wait(max(0.05, interval - (time.monotonic() - started)))
         finally:
             with self.lock:
                 self.engine.shutdown()
-            log.info("Beendet, Lüftersteuerung an Firmware/BIOS zurückgegeben")
+            log.info("Stopped, fan control handed back to firmware/BIOS")
 
 
     def _reload(self):
         try:
             cfg = cfgmod.load_config()
         except (cfgmod.ConfigError, ValueError) as e:
-            log.error("Neu laden fehlgeschlagen: %s", e)
+            log.error("Reload failed: %s", e)
             return
         self.engine.set_config(cfg)
         self.engine.rescan()
-        log.info("Konfiguration neu geladen")
+        log.info("Configuration reloaded")
 
 
 class _Handler(socketserver.StreamRequestHandler):
@@ -132,10 +132,10 @@ class _Handler(socketserver.StreamRequestHandler):
         except (cfgmod.ConfigError, ValueError, KeyError, TypeError) as e:
             reply = {"ok": False, "error": str(e)}
         except OSError as e:
-            reply = {"ok": False, "error": f"Systemfehler: {e}"}
+            reply = {"ok": False, "error": f"System error: {e}"}
         except Exception as e:
-            log.exception("Fehler bei Anfrage")
-            reply = {"ok": False, "error": f"Interner Fehler: {e}"}
+            log.exception("Error handling request")
+            reply = {"ok": False, "error": f"Internal error: {e}"}
         try:
             self.wfile.write(json.dumps(reply).encode() + b"\n")
         except OSError:
@@ -161,7 +161,7 @@ def _prepare_socket(path, group):
         try:
             os.chown(path, -1, grp.getgrnam(group).gr_gid)
         except (KeyError, PermissionError) as e:
-            log.warning("Gruppe '%s' für Socket nicht setzbar: %s", group, e)
+            log.warning("Cannot set group '%s' on socket: %s", group, e)
     return server
 
 
@@ -174,13 +174,13 @@ def _prepare_sensor_dir(socket_file, group):
         os.chown(path, -1, gid)
         os.chmod(path, 0o2775 if group else 0o755)
     except (OSError, KeyError) as e:
-        log.warning("Ordner für Datei-Sensoren nicht vorbereitet: %s", e)
+        log.warning("File sensor directory not prepared: %s", e)
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="FanControl for Linux – Hintergrunddienst")
+    parser = argparse.ArgumentParser(description="Linux FanControl – background service")
     parser.add_argument("--socket", default=socket_path())
-    parser.add_argument("--group", default="fancontrol", help="Gruppe mit Zugriff auf den Socket ('' = keine)")
+    parser.add_argument("--group", default="fancontrol", help="group allowed to access the socket ('' = none)")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,

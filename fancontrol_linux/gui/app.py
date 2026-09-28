@@ -32,33 +32,35 @@ SERVICE_FILES = ("/etc/systemd/system/fancontrol-linux.service", "/etc/init.d/fa
 
 def _service_missing():
     return not any(os.path.exists(p) for p in SERVICE_FILES)
+
+
 PAGES = (
-    ("controls", "Steuerungen", "fc-gauge-symbolic"),
-    ("curves", "Kurven", "fc-curve-symbolic"),
-    ("sensors", "Sensoren", "fc-thermometer-symbolic"),
+    ("controls", "Controls", "fc-gauge-symbolic"),
+    ("curves", "Curves", "fc-curve-symbolic"),
+    ("sensors", "Sensors", "fc-thermometer-symbolic"),
     ("design", "Design", "fc-palette-symbolic"),
     ("tray", "Tray", "fc-eye-symbolic"),
-    ("settings", "Einstellungen", "fc-settings-symbolic"),
-    ("about", "Über", "fc-about-symbolic"),
+    ("settings", "Settings", "fc-settings-symbolic"),
+    ("about", "About", "fc-about-symbolic"),
 )
 SHORTCUTS = [
-    ("<Control>1 … <Control>7", "Seite wechseln"),
-    ("<Control>r", "Hardware neu erkennen"),
-    ("<Control>n", "Neue grafische Kurve"),
-    ("<Control>h", "Ausgeblendete Kacheln anzeigen/verbergen"),
-    ("<Control>p", "Profile öffnen"),
-    ("<Control>o", "Konfigurationsdatei öffnen"),
-    ("<Control><Shift>s", "Konfiguration als Datei speichern"),
-    ("<Control>i", "Aus Datei importieren"),
-    ("F1", "Tastenkürzel anzeigen"),
-    ("<Control>w", "Fenster schließen (läuft im Tray weiter)"),
-    ("<Control>q", "Beenden"),
+    ("<Control>1 … <Control>7", "Switch page"),
+    ("<Control>r", "Rescan hardware"),
+    ("<Control>n", "New graph curve"),
+    ("<Control>h", "Show/hide hidden cards"),
+    ("<Control>p", "Open profiles"),
+    ("<Control>o", "Open configuration file"),
+    ("<Control><Shift>s", "Save configuration as file"),
+    ("<Control>i", "Import from file"),
+    ("F1", "Show keyboard shortcuts"),
+    ("<Control>w", "Close window (keeps running in the tray)"),
+    ("<Control>q", "Quit"),
 ]
 
 
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="FanControl", default_width=1180, default_height=800)
+        super().__init__(application=app, title="Linux FanControl", default_width=1180, default_height=800)
         self.app = app
         self.prefs = GuiPrefs()
         set_fahrenheit(self.prefs.get("fahrenheit"))
@@ -102,45 +104,45 @@ class MainWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar(show_title=False)
         title = Gtk.Box(spacing=10, margin_start=6)
         title.append(Gtk.Image(icon_name="fc-fan-symbolic", pixel_size=22))
-        title.append(Gtk.Label(label="Fan Control", css_classes=["title"]))
+        title.append(Gtk.Label(label="Linux FanControl", css_classes=["title"]))
         header.pack_start(title)
 
         menu = Gio.Menu()
         section = Gio.Menu()
-        section.append("Neue leere Konfiguration", "win.new-config")
-        section.append("Konfigurationsdatei öffnen …", "win.open-config")
-        section.append("Konfiguration speichern unter …", "win.save-config")
-        section.append("Aus Datei importieren …", "win.import-config")
+        section.append("New empty configuration", "win.new-config")
+        section.append("Open configuration file …", "win.open-config")
+        section.append("Save configuration as …", "win.save-config")
+        section.append("Import from file …", "win.import-config")
         menu.append_section(None, section)
         section = Gio.Menu()
-        section.append("Einrichtungsassistent", "win.setup")
-        section.append("Hardware neu erkennen", "win.rescan")
-        section.append("Tastenkürzel", "win.shortcuts")
-        section.append("Beenden", "win.quit")
+        section.append("Setup assistant", "win.setup")
+        section.append("Rescan hardware", "win.rescan")
+        section.append("Keyboard shortcuts", "win.shortcuts")
+        section.append("Quit", "win.quit")
         menu.append_section(None, section)
         header.pack_end(Gtk.MenuButton(icon_name="view-more-symbolic", menu_model=menu, primary=True,
-                                       tooltip_text="Menü"))
+                                       tooltip_text="Menu"))
 
         self.profile_content = Adw.ButtonContent(icon_name="fc-profile-symbolic", label="Profil")
         self.profile_popover = Gtk.Popover()
         self.profile_popover.connect("show", lambda *_: self._fill_profiles())
         self.profile_button = Gtk.MenuButton(child=self.profile_content, popover=self.profile_popover,
-                                             tooltip_text="Profile (Strg+P)")
+                                             tooltip_text="Profiles (Ctrl+P)")
         header.pack_end(self.profile_button)
         self.hidden_toggle = Gtk.ToggleButton(icon_name="fc-eye-symbolic", active=bool(self.prefs.get("show_hidden")),
-                                              tooltip_text="Ausgeblendete Kacheln anzeigen (Strg+H)")
+                                              tooltip_text="Show hidden cards (Ctrl+H)")
         self.hidden_toggle.connect("toggled", lambda b: self.set_show_hidden(b.get_active()))
         header.pack_end(self.hidden_toggle)
-        refresh = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Hardware neu erkennen (Strg+R)")
+        refresh = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Rescan hardware (Ctrl+R)")
         refresh.connect("clicked", lambda *_: self.rescan())
         header.pack_end(refresh)
         self.theme.header_widgets.append(header)
         self.apply_theme()
         self._setup_actions()
 
-        self.banner = Adw.Banner(button_label="Dienst starten")
+        self.banner = Adw.Banner(button_label="Start service")
         self.banner.connect("button-clicked", lambda *_: self.start_service())
-        self.safety_banner = Adw.Banner(title="Sicherheitstemperatur erreicht – alle gesteuerten Lüfter laufen auf 100 %")
+        self.safety_banner = Adw.Banner(title="Safety temperature reached – all controlled fans run at 100 %")
 
         body = Gtk.Box()
         body.append(self.rail)
@@ -233,7 +235,7 @@ class MainWindow(Adw.ApplicationWindow):
         else:
             hidden.append(item_id)
             if not self.prefs.get("show_hidden"):
-                self.toast("Ausgeblendet – über das Augen-Symbol oben wieder sichtbar machen")
+                self.toast("Hidden – use the eye icon at the top to show it again")
         self.config_changed(rebuild={"controls", "curves", "sensors"})
 
     def set_show_hidden(self, show):
@@ -276,7 +278,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._update_profile_label()
 
     def _update_profile_label(self):
-        self.profile_content.set_label((self.config or {}).get("profile") or "Profil")
+        self.profile_content.set_label((self.config or {}).get("profile") or "Profile")
 
     def config_changed(self, rebuild=None):
         if self.config is None:
@@ -293,7 +295,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.push_source = None
         cfg = copy.deepcopy(self.config)
         run_async(lambda: self.client.call("set_config", config=cfg),
-                  on_error=lambda e: self.toast(f"Nicht übernommen: {e}"))
+                  on_error=lambda e: self.toast(f"Not applied: {e}"))
         return False
 
     def _poll(self):
@@ -353,25 +355,25 @@ class MainWindow(Adw.ApplicationWindow):
         self.safety_banner.set_revealed(False)
         message = str(error)
         self.banner.set_title(message)
-        if not isinstance(error, DaemonUnavailable) or "Berechtigung" in message:
+        if not isinstance(error, DaemonUnavailable) or "permission" in message:
             label = None
         elif _service_missing() and os.environ.get("APPIMAGE"):
-            label = "Dienst installieren"
-            message = "Der Hintergrunddienst ist noch nicht eingerichtet."
+            label = "Install service"
+            message = "The background service is not set up yet."
             self.banner.set_title(message)
         else:
-            label = "Dienst starten"
+            label = "Start service"
         self.banner.set_button_label(label)
         self.banner.set_revealed(True)
         if self.tray:
-            self.tray.set_main_tooltip("FanControl", "Dienst nicht erreichbar")
+            self.tray.set_main_tooltip("Linux FanControl", "Service unreachable")
 
     def toast(self, message):
         self.toasts.add_toast(Adw.Toast(title=GLib.markup_escape_text(str(message)), timeout=5))
 
     def confirm(self, heading, body, action_label, callback, destructive=False):
         dialog = Adw.AlertDialog(heading=heading, body=body)
-        dialog.add_response("cancel", "Abbrechen")
+        dialog.add_response("cancel", "Cancel")
         dialog.add_response("ok", action_label)
         dialog.set_response_appearance("ok", Adw.ResponseAppearance.DESTRUCTIVE if destructive
                                        else Adw.ResponseAppearance.SUGGESTED)
@@ -415,9 +417,9 @@ class MainWindow(Adw.ApplicationWindow):
                 lines.append(f"{self.display_name(pid)}: {fmt_pct(info['percent'])}"
                              + (f" · {fmt_rpm(rpm)}" if rpm is not None else ""))
         if st.get("safety_active"):
-            lines.insert(0, "⚠ Sicherheitstemperatur erreicht")
-        self.tray.set_main_tooltip(f"FanControl – {st.get('profile') or ''}",
-                                   "\n".join(lines) or "Keine Lüfter gesteuert")
+            lines.insert(0, "⚠ Safety temperature reached")
+        self.tray.set_main_tooltip(f"Linux FanControl – {st.get('profile') or ''}",
+                                   "\n".join(lines) or "No fans controlled")
         entries = []
         for entry in self.prefs.get("tray_sensors") or []:
             sid = entry["id"]
@@ -463,8 +465,8 @@ class MainWindow(Adw.ApplicationWindow):
         def work():
             res = subprocess.run(["pkexec", "systemctl", "start", SERVICE], capture_output=True, text=True)
             if res.returncode != 0:
-                raise RuntimeError(res.stderr.strip() or "Start fehlgeschlagen")
-        run_async(work, lambda _: self.toast("Dienst gestartet"), lambda e: self.toast(f"Dienst: {e}"))
+                raise RuntimeError(res.stderr.strip() or "Start failed")
+        run_async(work, lambda _: self.toast("Service started"), lambda e: self.toast(f"Service: {e}"))
 
     def _install_from_appimage(self):
         """Run the AppImage's own installer as root; pkexec shows the password prompt."""
@@ -473,22 +475,22 @@ class MainWindow(Adw.ApplicationWindow):
             res = subprocess.run(cmd, capture_output=True, text=True)
             if res.returncode != 0:
                 lines = (res.stderr or res.stdout).strip().splitlines()
-                raise RuntimeError(lines[-1] if lines else "abgebrochen")
+                raise RuntimeError(lines[-1] if lines else "cancelled")
             return res.stdout
 
         def done(_output):
-            self.toast("Installiert – bitte einmal ab- und wieder anmelden, falls der Zugriff noch verweigert wird")
-        self.toast("Installation läuft … (dauert etwa eine Minute)")
-        run_async(work, done, lambda e: self.toast(f"Installation fehlgeschlagen: {e}"))
+            self.toast("Installed – log out and back in once if access is still denied")
+        self.toast("Installing … (takes about a minute)")
+        run_async(work, done, lambda e: self.toast(f"Installation failed: {e}"))
 
     def rescan(self):
         run_async(lambda: self.client.call("rescan"), lambda st: (self._on_status((st, None, None)),
-                                                                  self.toast("Hardware neu erkannt")),
+                                                                  self.toast("Hardware rescanned")),
                   lambda e: self.toast(str(e)))
 
     def identify(self, pid):
         run_async(lambda: self.client.call("identify", control=pid, seconds=10),
-                  lambda _: self.toast(f"{self.display_name(pid)} läuft 10 Sekunden auf 100 %"),
+                  lambda _: self.toast(f"{self.display_name(pid)} runs at 100 % for 10 seconds"),
                   lambda e: self.toast(str(e)))
 
     def calibration_clicked(self, pid):
@@ -499,12 +501,12 @@ class MainWindow(Adw.ApplicationWindow):
 
         def start():
             run_async(lambda: self.client.call("calibrate", control=pid),
-                      lambda _: self.toast("Kalibrierung gestartet"), lambda e: self.toast(str(e)))
-        self.confirm(f"{self.display_name(pid)} kalibrieren?",
-                     "Der Lüfter wird etwa 2 Minuten lang schrittweise von 100 % bis 0 % und wieder hoch gefahren, "
-                     "um Anlauf- und Stopp-Punkt sowie die Drehzahlkurve zu messen. Bei Erreichen der "
-                     "Sicherheitstemperatur wird abgebrochen.",
-                     "Kalibrieren", start)
+                      lambda _: self.toast("Calibration started"), lambda e: self.toast(str(e)))
+        self.confirm(f"Calibrate {self.display_name(pid)}?",
+                     "For about 2 minutes the fan is stepped from 100 % down to 0 % and back up to measure "
+                     "its start and stop points and its speed curve. Calibration is cancelled if the safety "
+                     "temperature is reached.",
+                     "Calibrate", start)
 
     def _check_calibration(self, cal):
         key = None if not cal or cal["running"] else cal["run"]
@@ -517,22 +519,22 @@ class MainWindow(Adw.ApplicationWindow):
         self.shown_calibration = key
         pid = cal["control"]
         if cal["error"]:
-            if cal["error"] != "Abgebrochen":
-                self.toast(f"Kalibrierung: {cal['error']}")
+            if cal["error"] != "Cancelled":
+                self.toast(f"Calibration: {cal['error']}")
             return
         r = cal["result"]
         table = "\n".join(f"{pct:>3} %  →  {rpm} RPM" for pct, rpm in r["rpm_curve"][::2])
-        body = (f"Drehzahlsensor: {self.display_name(r['fan'])}\n"
-                f"Bereich: {r['min_rpm']}–{r['max_rpm']} RPM\n")
+        body = (f"Speed sensor: {self.display_name(r['fan'])}\n"
+                f"Range: {r['min_rpm']}–{r['max_rpm']} RPM\n")
         if r["can_stop"]:
-            body += (f"\nEmpfohlen: Minimum {r['suggested_min_percent']:.0f} %, "
-                     f"Anlauf {r['suggested_start_percent']:.0f} %, Stop {r['suggested_stop_percent']:.0f} %\n")
+            body += (f"\nSuggested: minimum {r['suggested_min_percent']:.0f} %, "
+                     f"start {r['suggested_start_percent']:.0f} %, stop {r['suggested_stop_percent']:.0f} %\n")
         elif r["suggested_min_percent"]:
-            body += (f"\nUnter {r['suggested_min_percent']:.0f} % ändert sich die Drehzahl nicht mehr – "
-                     "empfohlenes Minimum.\n")
+            body += (f"\nBelow {r['suggested_min_percent']:.0f} % the speed no longer changes – "
+                     "suggested minimum.\n")
         else:
-            body += "\nDer Lüfter stoppt auch bei 0 % nicht – keine Mindestwerte nötig.\n"
-        body += "\nDie Messung wird gespeichert (nötig für RPM-Kurven und die Anlaufhilfe).\n\n" + table
+            body += "\nThe fan does not stop even at 0 % – no minimum values needed.\n"
+        body += "\nThe measurement is stored (needed for RPM curves and the start assist).\n\n" + table
 
         def apply():
             ctl = self.ensure_control(pid)
@@ -543,7 +545,7 @@ class MainWindow(Adw.ApplicationWindow):
                 ctl["start_percent"] = r["suggested_start_percent"]
             ctl["max_percent"] = max(ctl["max_percent"], ctl["min_percent"])
             self.config_changed(rebuild={"controls"})
-        self.confirm(f"Kalibrierung abgeschlossen: {self.display_name(pid)}", body, "Übernehmen", apply)
+        self.confirm(f"Calibration finished: {self.display_name(pid)}", body, "Apply", apply)
 
     def _maybe_prompt_setup(self):
         if self.setup_prompted or self.prefs.get("setup_done") or not self.config or not self.status:
@@ -555,24 +557,24 @@ class MainWindow(Adw.ApplicationWindow):
 
     def setup_wizard(self):
         if not self.config or not self.status:
-            self.toast("Keine Verbindung zum Dienst")
+            self.toast("No connection to the service")
             return
         pwms = self.status["pwms"]
         cpu = self._pick_temp(CPU_PATTERNS)
         gpu = self._pick_temp(GPU_PATTERNS)
-        lines = [f"• {len(pwms)} steuerbare Lüfter gefunden",
-                 f"• CPU-Temperatur: {self.display_name(cpu) if cpu else 'nicht gefunden'}",
-                 f"• GPU-Temperatur: {self.display_name(gpu) if gpu else 'nicht gefunden'}"]
-        body = ("Der Assistent legt Standardkurven an und weist sie allen Lüftern zu. "
-                "GPU-Lüfter folgen der GPU-Kurve, alle anderen der CPU-Kurve.\n\n" + "\n".join(lines) +
-                "\n\nDanach kannst du alles anpassen. Tipp: Kalibriere anschließend jeden Lüfter.")
+        lines = [f"• {len(pwms)} controllable fans found",
+                 f"• CPU temperature: {self.display_name(cpu) if cpu else 'not found'}",
+                 f"• GPU temperature: {self.display_name(gpu) if gpu else 'not found'}"]
+        body = ("The assistant creates default curves and assigns them to all fans. "
+                "GPU fans follow the GPU curve, all others the CPU curve.\n\n" + "\n".join(lines) +
+                "\n\nYou can adjust everything afterwards. Tip: calibrate each fan next.")
         if not pwms:
-            body = "Es wurden keine steuerbaren Lüfter gefunden. Hinweise dazu stehen auf der Seite „Steuerungen“."
+            body = "No controllable fans were found. Hints are shown on the “Controls” page."
 
-        dialog = Adw.AlertDialog(heading="Einrichtung", body=body)
-        dialog.add_response("later", "Später")
+        dialog = Adw.AlertDialog(heading="Setup", body=body)
+        dialog.add_response("later", "Later")
         if pwms:
-            dialog.add_response("setup", "Automatisch einrichten")
+            dialog.add_response("setup", "Set up automatically")
             dialog.set_response_appearance("setup", Adw.ResponseAppearance.SUGGESTED)
             dialog.set_default_response("setup")
 
@@ -602,14 +604,14 @@ class MainWindow(Adw.ApplicationWindow):
             ctl["mode"] = "curve"
             ctl["enabled"] = True
         self.config_changed(rebuild={"controls", "curves"})
-        self.toast("Eingerichtet – die Lüfter werden jetzt gesteuert")
+        self.toast("Set up – the fans are now controlled")
 
     def show_shortcuts(self):
         group = Adw.PreferencesGroup()
         for accel, text in SHORTCUTS:
             row = Adw.ActionRow(title=text)
             keys = Gtk.ShortcutLabel(accelerator=accel.split(" … ")[0], valign=Gtk.Align.CENTER) \
-                if " … " not in accel else Gtk.Label(label="Strg + 1 … 7", css_classes=["dim-label"])
+                if " … " not in accel else Gtk.Label(label="Ctrl + 1 … 7", css_classes=["dim-label"])
             row.add_suffix(keys)
             group.add(row)
         page = Adw.PreferencesPage()
@@ -617,11 +619,11 @@ class MainWindow(Adw.ApplicationWindow):
         view = Adw.ToolbarView()
         view.add_top_bar(Adw.HeaderBar())
         view.set_content(page)
-        Adw.Dialog(title="Tastenkürzel", child=view, content_width=460, content_height=620).present(self)
+        Adw.Dialog(title="Keyboard shortcuts", child=view, content_width=460, content_height=620).present(self)
 
     # --- configuration files --------------------------------------------
     def _json_filter(self):
-        f = Gtk.FileFilter(name="FanControl-Konfiguration (JSON)")
+        f = Gtk.FileFilter(name="Linux FanControl configuration (JSON)")
         f.add_pattern("*.json")
         store = Gio.ListStore.new(Gtk.FileFilter)
         store.append(f)
@@ -634,20 +636,20 @@ class MainWindow(Adw.ApplicationWindow):
     def new_config(self):
         def do():
             cfg = cfgmod.empty_config()
-            cfg["profile"] = "Neu"
+            cfg["profile"] = "New"
             if self.config:
                 cfg["settings"] = dict(self.config["settings"])
                 cfg["sensor_names"] = dict(self.config["sensor_names"])
             run_async(lambda: self.client.call("set_config", config=cfg),
-                      lambda c: self._profile_loaded(c, "Leere Konfiguration angelegt – alle Lüfter in Automatik"),
+                      lambda c: self._profile_loaded(c, "Empty configuration created – all fans on automatic"),
                       lambda e: self.toast(str(e)))
-        self.confirm("Neue leere Konfiguration?",
-                     "Alle Kurven, Steuerungen und eigenen Sensoren der aktiven Konfiguration werden verworfen "
-                     "(gespeicherte Profile bleiben erhalten). Alle Lüfter gehen zurück in die Automatik.",
-                     "Neu anlegen", do, destructive=True)
+        self.confirm("New empty configuration?",
+                     "All curves, controls and custom sensors of the active configuration are discarded "
+                     "(saved profiles are kept). All fans return to automatic control.",
+                     "Create", do, destructive=True)
 
     def open_config(self):
-        dialog = Gtk.FileDialog(title="Konfiguration öffnen", filters=self._json_filter())
+        dialog = Gtk.FileDialog(title="Open configuration", filters=self._json_filter())
 
         def done(d, result):
             try:
@@ -657,11 +659,11 @@ class MainWindow(Adw.ApplicationWindow):
             try:
                 cfg = self._read_file(file)
             except (OSError, ValueError) as e:
-                self.toast(f"Datei ungültig: {e}")
+                self.toast(f"Invalid file: {e}")
                 return
             cfg["profile"] = file.get_basename().rsplit(".", 1)[0]
             run_async(lambda: self.client.call("set_config", config=cfg),
-                      lambda c: self._profile_loaded(c, f"„{file.get_basename()}“ geladen"),
+                      lambda c: self._profile_loaded(c, f"“{file.get_basename()}” loaded"),
                       lambda e: self.toast(str(e)))
         dialog.open(self, None, done)
 
@@ -669,7 +671,7 @@ class MainWindow(Adw.ApplicationWindow):
         if not self.config:
             return
         name = f"{self.config.get('profile') or 'fancontrol'}.json"
-        dialog = Gtk.FileDialog(title="Konfiguration speichern", initial_name=name, filters=self._json_filter())
+        dialog = Gtk.FileDialog(title="Save configuration", initial_name=name, filters=self._json_filter())
 
         def done(d, result):
             try:
@@ -680,15 +682,15 @@ class MainWindow(Adw.ApplicationWindow):
                 with open(file.get_path(), "w") as f:
                     json.dump(self.config, f, indent=2, ensure_ascii=False)
             except OSError as e:
-                self.toast(f"Speichern fehlgeschlagen: {e}")
+                self.toast(f"Saving failed: {e}")
                 return
-            self.toast(f"Gespeichert: {file.get_path()}")
+            self.toast(f"Saved: {file.get_path()}")
         dialog.save(self, None, done)
 
     def import_config(self):
         if not self.config:
             return
-        dialog = Gtk.FileDialog(title="Aus Konfiguration importieren", filters=self._json_filter())
+        dialog = Gtk.FileDialog(title="Import from configuration", filters=self._json_filter())
 
         def done(d, result):
             try:
@@ -698,16 +700,16 @@ class MainWindow(Adw.ApplicationWindow):
             try:
                 self._import_dialog(self._read_file(file))
             except (OSError, ValueError) as e:
-                self.toast(f"Datei ungültig: {e}")
+                self.toast(f"Invalid file: {e}")
         dialog.open(self, None, done)
 
     def _import_dialog(self, other):
         """Pick curves, custom sensors and control settings from another configuration."""
         listbox = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         choices = []
-        for kind, items, label in (("curve", other["curves"], "Kurve"),
-                                   ("sensor", other["custom_sensors"], "Eigener Sensor"),
-                                   ("control", other["controls"], "Steuerung")):
+        for kind, items, label in (("curve", other["curves"], "Curve"),
+                                   ("sensor", other["custom_sensors"], "Custom sensor"),
+                                   ("control", other["controls"], "Control")):
             for item in items:
                 title = item.get("name") or self.display_name(item["id"])
                 row = Adw.ActionRow(title=title, subtitle=label)
@@ -717,15 +719,15 @@ class MainWindow(Adw.ApplicationWindow):
                 listbox.append(row)
                 choices.append((kind, item, check))
         if not choices:
-            self.toast("Die Datei enthält nichts zum Importieren")
+            self.toast("The file contains nothing to import")
             return
         scroll = Gtk.ScrolledWindow(child=listbox, min_content_height=260, max_content_height=420,
                                     propagate_natural_height=True)
-        dialog = Adw.AlertDialog(heading="Importieren",
-                                 body="Kurven und Sensoren werden hinzugefügt, Steuerungen mit gleicher Hardware "
-                                      "übernehmen die Einstellungen aus der Datei.", extra_child=scroll)
-        dialog.add_response("cancel", "Abbrechen")
-        dialog.add_response("ok", "Importieren")
+        dialog = Adw.AlertDialog(heading="Import",
+                                 body="Curves and sensors are added; controls for the same hardware "
+                                      "take over the settings from the file.", extra_child=scroll)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("ok", "Import")
         dialog.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
 
         def respond(_d, response):
@@ -753,7 +755,7 @@ class MainWindow(Adw.ApplicationWindow):
                     self.config["controls"].append(item)
                 count += 1
             self.config_changed(rebuild={"controls", "curves", "sensors"})
-            self.toast(f"{count} Einträge importiert")
+            self.toast(f"{count} items imported")
         dialog.connect("response", respond)
         dialog.present(self)
 
@@ -762,16 +764,16 @@ class MainWindow(Adw.ApplicationWindow):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=8, margin_bottom=8,
                       margin_start=8, margin_end=8, width_request=300)
         listbox = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
-        box.append(Gtk.Label(label="Profile", css_classes=["heading"], halign=Gtk.Align.START))
+        box.append(Gtk.Label(label="Profiles", css_classes=["heading"], halign=Gtk.Align.START))
         box.append(listbox)
-        entry = Gtk.Entry(placeholder_text="Name für neues Profil", hexpand=True)
-        save = Gtk.Button(label="Speichern", css_classes=["suggested-action"])
+        entry = Gtk.Entry(placeholder_text="Name for a new profile", hexpand=True)
+        save = Gtk.Button(label="Save", css_classes=["suggested-action"])
         row = Gtk.Box(spacing=6)
         row.append(entry)
         row.append(save)
         box.append(row)
         files = Gtk.Box(spacing=6, homogeneous=True)
-        for label, callback in (("Datei öffnen …", self.open_config), ("Speichern unter …", self.save_config)):
+        for label, callback in (("Open file …", self.open_config), ("Save as …", self.save_config)):
             b = Gtk.Button(label=label, css_classes=["flat"])
             b.connect("clicked", lambda _b, cb=callback: (self.profile_popover.popdown(), cb()))
             files.append(b)
@@ -787,7 +789,7 @@ class MainWindow(Adw.ApplicationWindow):
             def work():
                 self.client.call("set_config", config=cfg)
                 return self.client.call("save_profile", name=name)
-            run_async(work, lambda c: self._profile_loaded(c, f"Profil „{name}“ gespeichert"),
+            run_async(work, lambda c: self._profile_loaded(c, f"Profile “{name}” saved"),
                       lambda e: self.toast(str(e)))
             self.profile_popover.popdown()
             self.profiles_checked = 0
@@ -796,27 +798,27 @@ class MainWindow(Adw.ApplicationWindow):
 
         def fill(data):
             if not data["profiles"]:
-                listbox.append(Adw.ActionRow(title="Noch keine Profile gespeichert"))
+                listbox.append(Adw.ActionRow(title="No profiles saved yet"))
             for name in data["profiles"]:
                 r = Adw.ActionRow(title=name, activatable=True)
                 if name == data["active"]:
                     r.add_prefix(Gtk.Image(icon_name="object-select-symbolic"))
                     entry.set_text(name)
                 delete = Gtk.Button(icon_name="user-trash-symbolic", css_classes=["flat"],
-                                    valign=Gtk.Align.CENTER, tooltip_text="Löschen")
+                                    valign=Gtk.Align.CENTER, tooltip_text="Delete")
                 delete.connect("clicked", lambda _b, n=name: self._delete_profile(n))
                 r.add_suffix(delete)
                 r.connect("activated", lambda _r, n=name: self._load_profile(n))
                 listbox.append(r)
         run_async(lambda: self.client.call("list_profiles"), fill, lambda e: listbox.append(
-            Adw.ActionRow(title="Dienst nicht erreichbar", subtitle=str(e))))
+            Adw.ActionRow(title="Service unreachable", subtitle=str(e))))
 
     def _load_profile(self, name):
         self.profile_popover.popdown()
         if self.push_source:
             self._push()
         run_async(lambda: self.client.call("load_profile", name=name),
-                  lambda c: self._profile_loaded(c, f"Profil „{name}“ geladen"), lambda e: self.toast(str(e)))
+                  lambda c: self._profile_loaded(c, f"Profile “{name}” loaded"), lambda e: self.toast(str(e)))
 
     def _profile_loaded(self, cfg, message):
         self.config = cfg
@@ -826,9 +828,9 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _delete_profile(self, name):
         self.profile_popover.popdown()
-        self.confirm(f"Profil „{name}“ löschen?", "Die aktive Konfiguration bleibt unverändert.", "Löschen",
+        self.confirm(f"Delete profile “{name}”?", "The active configuration stays unchanged.", "Delete",
                      lambda: run_async(lambda: self.client.call("delete_profile", name=name),
-                                       lambda _: self.toast(f"Profil „{name}“ gelöscht"),
+                                       lambda _: self.toast(f"Profile “{name}” deleted"),
                                        lambda e: self.toast(str(e))), destructive=True)
 
     # --- appearance / window --------------------------------------------
@@ -844,7 +846,7 @@ class MainWindow(Adw.ApplicationWindow):
             try:
                 self.client.call("set_config", config=self.config)
             except Exception as e:
-                print(f"Konfiguration nicht gespeichert: {e}", file=sys.stderr)
+                print(f"Configuration not saved: {e}", file=sys.stderr)
 
     def _on_close(self, *_):
         self._flush()
@@ -859,7 +861,7 @@ class FanControlApp(Adw.Application):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.start_hidden = False
         self.add_main_option("hidden", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
-                             "Nur im Tray starten, ohne Fenster", None)
+                             "Start in the tray only, without a window", None)
 
     def do_handle_local_options(self, options):
         self.start_hidden = options.contains("hidden")
@@ -875,4 +877,5 @@ class FanControlApp(Adw.Application):
 
 
 def main():
+    GLib.set_application_name("Linux FanControl")
     return FanControlApp().run(sys.argv)

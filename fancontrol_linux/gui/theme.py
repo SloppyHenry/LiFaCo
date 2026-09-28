@@ -13,19 +13,19 @@ from . import graph_editor  # noqa: E402
 ICON_DIR = os.path.join(os.path.dirname(__file__), "icons")
 
 SCHEMES = [("system", "System", Adw.ColorScheme.DEFAULT),
-           ("light", "Hell", Adw.ColorScheme.FORCE_LIGHT),
-           ("dark", "Dunkel", Adw.ColorScheme.FORCE_DARK)]
+           ("light", "Light", Adw.ColorScheme.FORCE_LIGHT),
+           ("dark", "Dark", Adw.ColorScheme.FORCE_DARK)]
 
 # name, accent, card, header (None = libadwaita default)
 PALETTES = {
-    "classic": ("Klassisch (Blau/Gelb)", "#f7cf3b", "#0b3183", "#0d3a8c"),
+    "classic": ("Classic (blue/yellow)", "#f7cf3b", "#0b3183", "#0d3a8c"),
     "adwaita": ("Adwaita", None, None, None),
-    "ocean": ("Ozean", "#5ee6f5", "#0f4c5c", "#135e70"),
-    "forest": ("Wald", "#8ff0a4", "#1b4a30", "#1f5637"),
-    "ember": ("Glut", "#ffb057", "#5a220f", "#6d2a12"),
-    "violet": ("Violett", "#e3b3ff", "#3a1f6b", "#46257f"),
-    "graphite": ("Graphit (Rot)", "#ff6b6b", "#34343a", "#26262b"),
-    "custom": ("Eigene Farben", None, None, None),
+    "ocean": ("Ocean", "#5ee6f5", "#0f4c5c", "#135e70"),
+    "forest": ("Forest", "#8ff0a4", "#1b4a30", "#1f5637"),
+    "ember": ("Ember", "#ffb057", "#5a220f", "#6d2a12"),
+    "violet": ("Violet", "#e3b3ff", "#3a1f6b", "#46257f"),
+    "graphite": ("Graphite (red)", "#ff6b6b", "#34343a", "#26262b"),
+    "custom": ("Custom colours", None, None, None),
 }
 DEFAULT_CUSTOM = {"accent": "#f7cf3b", "card": "#0b3183", "header": "#0d3a8c"}
 

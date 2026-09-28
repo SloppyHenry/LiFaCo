@@ -74,7 +74,7 @@ class GraphEditor(Gtk.Widget):
             motion.connect("motion", self._on_motion)
             motion.connect("leave", lambda *_: self._set_hover(None))
             self.add_controller(motion)
-            self.set_tooltip_text("Punkte ziehen · Doppelklick: Punkt hinzufügen · Rechtsklick: Punkt entfernen")
+            self.set_tooltip_text("Drag points · double-click: add point · right-click: remove point")
 
     def _fit_range(self):
         temps = [p[0] for p in self.points]

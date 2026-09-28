@@ -130,7 +130,7 @@ class Calibration:
                 if deltas[best] > 100:
                     fan = best
         if fan is None or not full.get(fan):
-            self.error = "Kein Drehzahlsensor hat auf diese Steuerung reagiert."
+            self.error = "No fan speed sensor responded to this control."
             return
 
         curve = [[pct, fans.get(fan) or 0] for pct, fans in down]
@@ -213,9 +213,9 @@ class Engine:
 
     def start_calibration(self, control_id, settle=4.0):
         if control_id not in self.hw.pwms:
-            raise ValueError("Unbekannte Steuerung")
+            raise ValueError("Unknown control")
         if self.calibration and self.calibration.running:
-            raise ValueError("Es läuft bereits eine Kalibrierung")
+            raise ValueError("A calibration is already running")
         ctl = next((c for c in self.config["controls"] if c["id"] == control_id), None)
         hint = (ctl or {}).get("fan") or self.hw.pwms[control_id].default_fan
         self.calibration = Calibration(control_id, hint, settle)
@@ -223,11 +223,11 @@ class Engine:
     def cancel_calibration(self):
         if self.calibration and self.calibration.running:
             self.calibration.running = False
-            self.calibration.error = "Abgebrochen"
+            self.calibration.error = "Cancelled"
 
     def identify(self, control_id, seconds=10.0):
         if control_id not in self.hw.pwms:
-            raise ValueError("Unbekannte Steuerung")
+            raise ValueError("Unknown control")
         self.controls.setdefault(control_id, ControlState()).identify_until = self.clock() + seconds
 
     def _write(self, pwm, state, percent, now, force_apply=True):
@@ -255,7 +255,7 @@ class Engine:
         if curve_units.get(ctl["curve"]) == "rpm":
             converted = rpm_to_percent(ctl.get("calibration"), value)
             if converted is None:
-                state.error = "RPM-Kurve braucht eine Kalibrierung dieser Steuerung"
+                state.error = "RPM curve needs this control to be calibrated"
                 return math.inf
             return converted
         return value
@@ -290,7 +290,7 @@ class Engine:
         if cal and cal.running:
             if self.safety_active:
                 cal.running = False
-                cal.error = "Abgebrochen: Sicherheitstemperatur erreicht"
+                cal.error = "Cancelled: safety temperature reached"
             else:
                 cal.step(now, fans)
 

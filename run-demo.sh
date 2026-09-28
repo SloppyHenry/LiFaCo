@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Startet Dienst + Oberfläche mit simulierter Hardware – ohne root, ohne echte Lüfter anzufassen.
+# Starts service + user interface with simulated hardware – no root, real fans are never touched.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -214,7 +214,7 @@ class Hardware:
             if od == "active":
                 sid = f"{key}:pwm1"
                 fan = f"{key}:fan1"
-                self.pwms[sid] = amdgpu.AmdOdOutput(sid, f"{name}: Lüfter (Overdrive)", path,
+                self.pwms[sid] = amdgpu.AmdOdOutput(sid, f"{name}: fan (overdrive)", path,
                                                     fan if fan in self.fans else None)
                 continue
             if od == "disabled":
@@ -267,67 +267,67 @@ class Hardware:
         rows.append({
             "name": "Mainboard / hwmon",
             "state": "ok" if hw_pwms else "warn",
-            "detail": f"{board or 'Unbekanntes Board'} – Chips: {', '.join(chips) or 'keine'} – "
-                      f"{len(hw_pwms)} steuerbare Ausgänge",
-            "hint": "" if hw_pwms else "Keine steuerbaren Mainboard-Lüfter: sudo sensors-detect ausführen bzw. "
-                                         "den Installer erneut starten (lädt passende Treiber).",
+            "detail": f"{board or 'Unknown board'} – chips: {', '.join(chips) or 'none'} – "
+                      f"{len(hw_pwms)} controllable outputs",
+            "hint": "" if hw_pwms else "No controllable mainboard fans: run sudo sensors-detect or run the "
+                                         "installer again (it loads matching drivers).",
         })
         vendor = _dmi("sys_vendor").lower()
         if "dell" in vendor:
             loaded = "dell_smm" in chips or _module_loaded("dell_smm_hwmon")
             rows.append({"name": "Dell", "state": "ok" if loaded else "warn",
-                         "detail": "dell-smm-hwmon geladen" if loaded else "dell-smm-hwmon nicht geladen",
-                         "hint": "" if loaded else "sudo modprobe dell-smm-hwmon (evtl. mit ignore_dmi=1)"})
+                         "detail": "dell-smm-hwmon loaded" if loaded else "dell-smm-hwmon not loaded",
+                         "hint": "" if loaded else "sudo modprobe dell-smm-hwmon (possibly with ignore_dmi=1)"})
         if "lenovo" in vendor and _module_loaded("thinkpad_acpi"):
             enabled = (_read("/sys/module/thinkpad_acpi/parameters/fan_control") or "").strip() in ("Y", "1")
             rows.append({"name": "ThinkPad", "state": "ok" if enabled else "warn",
-                         "detail": "Lüftersteuerung freigegeben" if enabled else "fan_control=0",
-                         "hint": "" if enabled else "Der Installer kann 'options thinkpad_acpi fan_control=1' setzen "
-                                                    "(danach Neustart)."})
+                         "detail": "Fan control enabled" if enabled else "fan_control=0",
+                         "hint": "" if enabled else "The installer can set 'options thinkpad_acpi fan_control=1' "
+                                                    "(reboot afterwards)."})
         if "asus" in vendor or "asustek" in board.lower():
             ec = "asusec" in chips or "asus_wmi_sensors" in chips
             rows.append({"name": "ASUS", "state": "ok" if ec else "off",
-                         "detail": "Zusätzliche ASUS-Sensoren aktiv" if ec else "asus-ec-sensors nicht aktiv",
-                         "hint": "" if ec else "Für zusätzliche Sensoren: sudo modprobe asus-ec-sensors"})
+                         "detail": "Additional ASUS sensors active" if ec else "asus-ec-sensors not active",
+                         "hint": "" if ec else "For additional sensors: sudo modprobe asus-ec-sensors"})
         nvml = nvidia.Nvml.get() if self.nvidia_enabled else None
         nv_out = [p for p in self.pwms.values() if isinstance(p, nvidia.NvidiaFanOutput)]
-        if nvml or _module_loaded("nvidia") or "nouveau" in chips:
+        if self.nvidia_enabled and (nvml or _module_loaded("nvidia") or "nouveau" in chips):
             rows.append({
                 "name": "NVIDIA",
                 "state": "ok" if nvml else "warn",
-                "detail": f"NVML aktiv – {len(nv_out)} Lüfter steuerbar" if nvml else
-                          ("nouveau-Treiber (kaum Lüftersteuerung)" if "nouveau" in chips else "NVML nicht gefunden"),
-                "hint": "" if nvml else "Proprietären NVIDIA-Treiber installieren (enthält libnvidia-ml).",
+                "detail": f"NVML active – {len(nv_out)} controllable fans" if nvml else
+                          ("nouveau driver (hardly any fan control)" if "nouveau" in chips else "NVML not found"),
+                "hint": "" if nvml else "Install the proprietary NVIDIA driver (it includes libnvidia-ml).",
             })
         for key, state in self.amd_od.items():
             rows.append({
                 "name": "AMD Radeon (RDNA3/4)",
                 "state": "ok" if state == "active" else "warn",
-                "detail": "Overdrive-Lüfterkurve aktiv" if state == "active" else "Overdrive deaktiviert – nur Anzeige",
-                "hint": "" if state == "active" else "Kernelparameter amdgpu.ppfeaturemask=0xffffffff setzen "
-                                                     "(bietet der Installer an), dann neu starten.",
+                "detail": "Overdrive fan curve active" if state == "active" else "Overdrive disabled – monitoring only",
+                "hint": "" if state == "active" else "Set the kernel parameter amdgpu.ppfeaturemask=0xffffffff "
+                                                     "(the installer offers this), then reboot.",
             })
         if "amdgpu" in chips and not self.amd_od:
-            rows.append({"name": "AMD Radeon", "state": "ok", "detail": "Steuerung über amdgpu (pwm1)", "hint": ""})
+            rows.append({"name": "AMD Radeon", "state": "ok", "detail": "Controlled through amdgpu (pwm1)", "hint": ""})
         if any(c in chips for c in ("i915", "xe")):
-            rows.append({"name": "Intel Arc / Intel-Grafik", "state": "off",
-                         "detail": "Temperaturen/Drehzahl werden angezeigt",
-                         "hint": "Der Linux-Treiber erlaubt (noch) keine Lüftersteuerung für Intel-GPUs."})
+            rows.append({"name": "Intel Arc / Intel graphics", "state": "off",
+                         "detail": "Temperatures/fan speed are shown",
+                         "hint": "The Linux driver does not (yet) allow fan control for Intel GPUs."})
         kernel_devices = [c for c in chips if c.startswith(("nzxt", "corsair", "aquacomputer", "d5next", "octo",
                                                               "quadro", "highflownext", "farbwerk", "kraken"))]
         if kernel_devices:
-            rows.append({"name": "USB-Geräte (Kerneltreiber)", "state": "ok", "detail": ", ".join(kernel_devices),
+            rows.append({"name": "USB devices (kernel drivers)", "state": "ok", "detail": ", ".join(kernel_devices),
                          "hint": ""})
         if not self.settings.get("liquidctl", True):
-            rows.append({"name": "liquidctl (AIO/Smart-Geräte)", "state": "off", "detail": "Deaktiviert", "hint": ""})
+            rows.append({"name": "liquidctl (AIO/smart devices)", "state": "off", "detail": "Disabled", "hint": ""})
         elif not liquidctl_backend.available():
-            rows.append({"name": "liquidctl (AIO/Smart-Geräte)", "state": "off", "detail": "Nicht installiert",
-                         "hint": "Paket liquidctl installieren (macht der Installer)."})
+            rows.append({"name": "liquidctl (AIO/smart devices)", "state": "off", "detail": "Not installed",
+                         "hint": "Install the liquidctl package (the installer does this)."})
         else:
-            rows.append({"name": "liquidctl (AIO/Smart-Geräte)", "state": "ok" if self.liquidctl.devices else "off",
+            rows.append({"name": "liquidctl (AIO/smart devices)", "state": "ok" if self.liquidctl.devices else "off",
                          "detail": self.liquidctl.info(), "hint": ""})
-        rows.append({"name": "Thermaltake (experimentell)",
+        rows.append({"name": "Thermaltake (experimental)",
                      "state": "ok" if self.thermaltake.controllers else "off",
-                     "detail": self.thermaltake.info() if self.settings.get("thermaltake") else "Deaktiviert",
+                     "detail": self.thermaltake.info() if self.settings.get("thermaltake") else "Disabled",
                      "hint": ""})
         return rows

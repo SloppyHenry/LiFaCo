@@ -30,7 +30,7 @@ def section(title, help_text):
                            margin_top=8, margin_bottom=8, margin_start=8, margin_end=8)
     head.append(Gtk.MenuButton(child=Gtk.Label(label="?"), css_classes=["circular", "flat"],
                                valign=Gtk.Align.CENTER, popover=Gtk.Popover(child=help_label),
-                               tooltip_text="Hilfe"))
+                               tooltip_text="Help"))
     box.append(head)
     flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True, column_spacing=12,
                        row_spacing=12, min_children_per_line=1, max_children_per_line=8,
@@ -134,7 +134,7 @@ def card_menu(card, items):
         menu.append(label, f"card.a{i}")
     card.insert_action_group("card", group)
     return Gtk.MenuButton(icon_name="view-more-symbolic", menu_model=menu, css_classes=["flat", "circular"],
-                          valign=Gtk.Align.CENTER, tooltip_text="Mehr")
+                          valign=Gtk.Align.CENTER, tooltip_text="More")
 
 
 def card(hidden=False):
@@ -165,12 +165,12 @@ def picker_list(card_box, win, selected, choices, on_change, empty_text):
         def add(i):
             if i > 0:
                 on_change(selected + [remaining[i - 1][0]])
-        card_box.append(dropdown(["Hinzufügen …"] + [l for _i, l in remaining], 0, add))
+        card_box.append(dropdown(["Add …"] + [l for _i, l in remaining], 0, add))
     for item in selected:
         row = Gtk.Box(spacing=6)
         row.append(Gtk.Label(label=labels.get(item, f"{item} (fehlt)"), xalign=0, hexpand=True, ellipsize=3))
         remove = Gtk.Button(icon_name="window-close-symbolic", css_classes=["flat", "circular"],
-                            tooltip_text="Entfernen")
+                            tooltip_text="Remove")
         remove.connect("clicked", lambda _b, x=item: on_change([s for s in selected if s != x]))
         row.append(remove)
         card_box.append(row)
@@ -180,4 +180,4 @@ def picker_list(card_box, win, selected, choices, on_change, empty_text):
 
 def hidden_menu_item(win, item_id):
     hidden = item_id in win.config["hidden"]
-    return ("Einblenden" if hidden else "Ausblenden", lambda: win.toggle_hidden(item_id))
+    return ("Show" if hidden else "Hide", lambda: win.toggle_hidden(item_id))

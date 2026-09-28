@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# FanControl for Linux – Installer für Debian/Ubuntu/Mint, Fedora/RHEL, Arch/Manjaro, openSUSE, Void, Alpine, Gentoo.
-# Installiert Programm, Abhängigkeiten, Hardware-Treiber und den Hintergrunddienst (systemd, OpenRC oder runit).
+# Linux FanControl – installer for Debian/Ubuntu/Mint, Fedora/RHEL, Arch/Manjaro, openSUSE, Void, Alpine, Gentoo.
+# Installs the program, dependencies, hardware drivers and the background service (systemd, OpenRC or runit).
 set -euo pipefail
 
 PREFIX=/usr/local
@@ -20,18 +20,18 @@ THINKPAD=ask
 
 usage() {
     cat <<'EOF'
-Aufruf: sudo ./install.sh [Optionen]
+Usage: sudo ./install.sh [options]
 
-  -y, --yes            Keine Rückfragen; sichere Standardantworten (keine Kernel-/Boot-Änderungen)
-  --no-deps            Keine Pakete installieren
-  --no-hardware        Keine Treiber erkennen/laden (sensors-detect, Hersteller-Module)
-  --no-service         Hintergrunddienst nicht einrichten
-  --amd-overdrive      AMD RDNA3/4: Overdrive für die Lüftersteuerung ohne Rückfrage aktivieren
-  --it87-dkms          Aktuellen it87-Treiber (ITE-Chips) per DKMS ohne Rückfrage installieren
-  --thinkpad-fan       ThinkPad: Lüftersteuerung (thinkpad_acpi fan_control=1) ohne Rückfrage freischalten
-  -h, --help           Diese Hilfe
+  -y, --yes            No questions; safe default answers (no kernel/boot changes)
+  --no-deps            Do not install packages
+  --no-hardware        Do not detect/load drivers (sensors-detect, vendor modules)
+  --no-service         Do not set up the background service
+  --amd-overdrive      AMD RDNA3/4: enable overdrive for fan control without asking
+  --it87-dkms          Install the current it87 driver (ITE chips) via DKMS without asking
+  --thinkpad-fan       ThinkPad: enable fan control (thinkpad_acpi fan_control=1) without asking
+  -h, --help           This help
 
-Aus dem AppImage: sudo ./FanControl-x86_64.AppImage --install [Optionen]
+From the AppImage: sudo ./LinuxFanControl-x86_64.AppImage --install [options]
 EOF
 }
 
@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
     arg=$1
     shift
     case "$arg" in
-        --appimage) APPIMAGE_SRC=${1:?--appimage braucht ein Verzeichnis}; shift ;;
+        --appimage) APPIMAGE_SRC=${1:?--appimage needs a directory}; shift ;;
         -y|--yes) ASSUME_YES=1 ;;
         --no-deps) INSTALL_DEPS=0 ;;
         --no-hardware) SETUP_HARDWARE=0 ;;
@@ -50,16 +50,16 @@ while [[ $# -gt 0 ]]; do
         --it87-dkms) IT87_DKMS=yes ;;
         --thinkpad-fan) THINKPAD=yes ;;
         -h|--help) usage; exit 0 ;;
-        *) echo "Unbekannte Option: $arg" >&2; usage; exit 1 ;;
+        *) echo "Unknown option: $arg" >&2; usage; exit 1 ;;
     esac
 done
 
 if [[ $EUID -ne 0 ]]; then
-    echo "Bitte mit sudo ausführen: sudo ./install.sh" >&2
+    echo "Please run with sudo: sudo ./install.sh" >&2
     exit 1
 fi
 
-# --- Ausgabe ------------------------------------------------------------------
+# --- Output -------------------------------------------------------------------
 if [[ -t 1 ]]; then B=$'\e[1m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; N=$'\e[0m'; else B='' G='' Y='' R='' N=''; fi
 step() { echo; echo "${B}==> $*${N}"; }
 ok()   { echo "  ${G}✓${N} $*"; }
@@ -68,14 +68,14 @@ fail() { echo "  ${R}✗${N} $*"; }
 HINTS=()
 hint() { HINTS+=("$*"); warn "$*"; }
 
-# ask "Frage" default(y/n) → 0 = ja
+# ask "question" default(y/n) → 0 = yes
 ask() {
     local question=$1 default=$2 answer
     if [[ $ASSUME_YES -eq 1 || ! -t 0 ]]; then
         [[ $default == y ]]
         return
     fi
-    local suffix="[j/N]"; [[ $default == y ]] && suffix="[J/n]"
+    local suffix="[y/N]"; [[ $default == y ]] && suffix="[Y/n]"
     read -r -p "  ? $question $suffix " answer || answer=
     answer=${answer,,}
     [[ -z $answer ]] && answer=$default
@@ -85,9 +85,9 @@ ask() {
 record() { mkdir -p "$STATE_DIR"; grep -qxF "$1" "$MANIFEST" 2>/dev/null || echo "$1" >> "$MANIFEST"; }
 : > "$LOG"
 
-# --- Distribution erkennen ------------------------------------------------------
+# --- Detect distribution -------------------------------------------------------
 . /etc/os-release 2>/dev/null || true
-DISTRO_NAME=${PRETTY_NAME:-Unbekannt}
+DISTRO_NAME=${PRETTY_NAME:-Unknown}
 FAMILY=unknown
 for id in ${ID:-} ${ID_LIKE:-}; do
     case "$id" in
@@ -105,13 +105,13 @@ done
 if [[ -d /run/systemd/system ]]; then INIT=systemd
 elif command -v openrc >/dev/null 2>&1 || [[ -d /etc/init.d && -x /sbin/openrc-run ]]; then INIT=openrc
 elif [[ -d /etc/sv && -d /var/service ]] || command -v sv >/dev/null 2>&1; then INIT=runit
-elif command -v systemctl >/dev/null 2>&1; then INIT=systemd-offline   # z. B. Container ohne laufendes systemd
+elif command -v systemctl >/dev/null 2>&1; then INIT=systemd-offline   # e.g. containers without a running systemd
 else INIT=none
 fi
 
-step "System: $DISTRO_NAME (Paketfamilie: $FAMILY, Init: $INIT, Kernel: $(uname -r))"
+step "System: $DISTRO_NAME (package family: $FAMILY, init: $INIT, kernel: $(uname -r))"
 
-# Paketnamen je Distribution: pkg <rolle>
+# Package names per distribution: pkg <role>
 pkg() {
     case "$FAMILY:$1" in
         debian:base) echo "python3 python3-venv pciutils usbutils kmod" ;;
@@ -161,7 +161,7 @@ pkg() {
 }
 
 APT_UPDATED=0
-pm_install() {   # alle auf einmal, bei Fehler einzeln (ein fehlender Paketname bricht nichts ab)
+pm_install() {   # all at once, one by one on failure (a missing package name does not abort)
     [[ $# -eq 0 ]] && return 0
     local rc=0
     case "$FAMILY" in
@@ -170,7 +170,7 @@ pm_install() {   # alle auf einmal, bei Fehler einzeln (ein fehlender Paketname 
             DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" >>"$LOG" 2>&1 || rc=1 ;;
         fedora) dnf install -y "$@" >>"$LOG" 2>&1 || rc=1 ;;
         arch)
-            # Frische Installationen/Container haben noch keine Paketdatenbank.
+            # Fresh installations/containers have no package database yet.
             [[ -n "$(ls -A /var/lib/pacman/sync 2>/dev/null)" ]] || pacman -Sy --noconfirm >>"$LOG" 2>&1 || true
             pacman -S --needed --noconfirm "$@" >>"$LOG" 2>&1 || rc=1 ;;
         suse) zypper --non-interactive install --no-recommends "$@" >>"$LOG" 2>&1 || rc=1 ;;
@@ -183,19 +183,19 @@ pm_install() {   # alle auf einmal, bei Fehler einzeln (ein fehlender Paketname 
     esac
     if [[ $rc -ne 0 && $# -gt 1 ]]; then
         rc=0
-        for p in "$@"; do pm_install "$p" || { warn "Paket nicht installierbar: $p"; rc=1; }; done
+        for p in "$@"; do pm_install "$p" || { warn "Package could not be installed: $p"; rc=1; }; done
     fi
     return $rc
 }
 
-install_role() {   # install_role <rolle> <beschreibung>
+install_role() {   # install_role <role> <description>
     local names; names=$(pkg "$1")
     if [[ -z $names ]]; then
-        warn "$2: für diese Distribution keine Paketnamen bekannt – bitte manuell installieren"
+        warn "$2: no package names known for this distribution – please install manually"
         return 1
     fi
     # shellcheck disable=SC2086
-    if pm_install $names; then ok "$2"; else warn "$2: nicht vollständig installiert (Details: $LOG)"; return 1; fi
+    if pm_install $names; then ok "$2"; else warn "$2: not completely installed (details: $LOG)"; return 1; fi
 }
 
 have_python() { python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; }
@@ -213,57 +213,58 @@ have_liquidctl() {
         python3 -c 'import liquidctl' 2>/dev/null
 }
 
-# --- Abhängigkeiten -------------------------------------------------------------
+# --- Dependencies --------------------------------------------------------------
 if [[ $INSTALL_DEPS -eq 1 ]]; then
-    step "Pakete installieren"
+    step "Installing packages"
     if [[ -n $APPIMAGE_SRC ]]; then
-        # Python, GTK, libadwaita und liquidctl bringt das AppImage mit – nur Systemwerkzeuge installieren.
+        # The AppImage ships Python, GTK, libadwaita and liquidctl – only install system tools.
         # shellcheck disable=SC2046
-        pm_install $(pkg base | tr ' ' '\n' | grep -v 'python' | xargs) && ok "Systemwerkzeuge" || warn "Systemwerkzeuge unvollständig"
+        pm_install $(pkg base | tr ' ' '\n' | grep -v 'python' | xargs) && ok "System tools" || warn "System tools incomplete"
         install_role sensors "lm-sensors (sensors-detect)" || true
-        install_role polkit "polkit (Dienst aus der Oberfläche starten)" || true
+        install_role polkit "polkit (start the service from the UI)" || true
     else
-    install_role base "Python und Systemwerkzeuge" || true
+    install_role base "Python and system tools" || true
     install_role sensors "lm-sensors (sensors-detect)" || true
-    install_role polkit "polkit (Dienst aus der Oberfläche starten)" || true
-    if have_gui; then ok "GTK 4 / libadwaita bereits vorhanden"; else install_role gui "Oberfläche (GTK 4, libadwaita)" || true; fi
-    if have_liquidctl; then ok "liquidctl bereits vorhanden"
-    elif [[ -n $(pkg liquidctl) ]]; then install_role liquidctl "liquidctl (AIO-Wasserkühlungen, Smart-Hubs)" || true
-    else warn "liquidctl gibt es hier nicht als Paket – wird bei angeschlossenen AIO/Smart-Geräten per pip nachinstalliert"
+    install_role polkit "polkit (start the service from the UI)" || true
+    if have_gui; then ok "GTK 4 / libadwaita already present"; else install_role gui "User interface (GTK 4, libadwaita)" || true; fi
+    if have_liquidctl; then ok "liquidctl already present"
+    elif [[ -n $(pkg liquidctl) ]]; then install_role liquidctl "liquidctl (AIO liquid coolers, smart hubs)" || true
+    else warn "liquidctl is not packaged here – it is installed via pip when AIO/smart devices are connected"
     fi
     fi
 fi
 
 if [[ -n $APPIMAGE_SRC ]]; then
-    ok "Python, Oberfläche und liquidctl kommen aus dem AppImage"
+    ok "Python, user interface and liquidctl come from the AppImage"
 elif ! have_python; then
-    fail "Python 3.10 oder neuer wird benötigt (gefunden: $(python3 --version 2>&1 || echo keins))."
+    fail "Python 3.10 or newer is required (found: $(python3 --version 2>&1 || echo none))."
     exit 1
 fi
 if have_gui; then
-    ok "Oberfläche: GTK 4.14+ und libadwaita 1.5+ vorhanden"
+    ok "User interface: GTK 4.14+ and libadwaita 1.5+ present"
 else
-    hint "Oberfläche nicht lauffähig: GTK ≥ 4.14 und libadwaita ≥ 1.5 fehlen (z. B. Debian 12, Ubuntu 22.04). Dienst und fancontrol-linuxctl funktionieren trotzdem."
+    hint "User interface cannot run: GTK ≥ 4.14 and libadwaita ≥ 1.5 are missing (e.g. Debian 12, Ubuntu 22.04) – use the AppImage. Service and fancontrol-linuxctl work anyway."
 fi
 
-# --- Programmdateien --------------------------------------------------------------
+# --- Program files ---------------------------------------------------------------
 if [[ -n $APPIMAGE_SRC ]]; then
-    step "AppImage-Inhalt nach $OPT kopieren"
+    step "Copying the AppImage contents to $OPT"
     rm -rf "${OPT:?}.new"
     cp -a "$APPIMAGE_SRC/." "$OPT.new"
     rm -rf "${OPT:?}" && mv "$OPT.new" "$OPT"
-    rm -rf "${LIBDIR:?}"   # eine frühere Installation aus dem Quellcode ersetzen
+    rm -rf "${LIBDIR:?}"   # replace an earlier installation from source
     for mode in "fancontrol-linux:" "fancontrol-linuxd:--daemon" "fancontrol-linuxctl:--ctl"; do
-        rm -f "$PREFIX/bin/${mode%%:*}"   # kann ein Symlink der Quellcode-Installation sein
+        rm -f "$PREFIX/bin/${mode%%:*}"   # may be a symlink of the source installation
         printf '#!/bin/sh\nexec %s/AppRun %s "$@"\n' "$OPT" "${mode#*:}" > "$PREFIX/bin/${mode%%:*}"
         chmod 755 "$PREFIX/bin/${mode%%:*}"
     done
     install -Dm 644 "$OPT/usr/lib/fancontrol-linux/data/io.github.fancontrol_linux.desktop" "$PREFIX/share/applications/io.github.fancontrol_linux.desktop"
     install -Dm 644 "$OPT/usr/lib/fancontrol-linux/data/io.github.fancontrol_linux.svg" "$PREFIX/share/icons/hicolor/scalable/apps/io.github.fancontrol_linux.svg"
     SRC="$OPT/usr/lib/fancontrol-linux"
-    ok "Programm, Befehle, Startmenü-Eintrag"
+    ln -sf "$SRC/upgrade.sh" "$PREFIX/bin/fancontrol-linux-upgrade"
+    ok "Program, commands, menu entry"
 else
-step "Programm nach $LIBDIR kopieren"
+step "Copying the program to $LIBDIR"
 VENV_BACKUP=""
 if [[ -d "$LIBDIR/venv" ]]; then VENV_BACKUP=$(mktemp -d); mv "$LIBDIR/venv" "$VENV_BACKUP/"; fi
 rm -rf "${LIBDIR:?}" "${OPT:?}"
@@ -275,21 +276,23 @@ for b in fancontrol-linux fancontrol-linuxd fancontrol-linuxctl; do
     install -m 755 "$SRC/bin/$b" "$LIBDIR/bin/$b"
     ln -sf "$LIBDIR/bin/$b" "$PREFIX/bin/$b"
 done
+install -m 755 "$SRC/upgrade.sh" "$LIBDIR/upgrade.sh"
+ln -sf "$LIBDIR/upgrade.sh" "$PREFIX/bin/fancontrol-linux-upgrade"
 install -Dm 644 "$SRC/data/io.github.fancontrol_linux.desktop" "$PREFIX/share/applications/io.github.fancontrol_linux.desktop"
 install -Dm 644 "$SRC/data/io.github.fancontrol_linux.svg" "$PREFIX/share/icons/hicolor/scalable/apps/io.github.fancontrol_linux.svg"
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$PREFIX/share/icons/hicolor" || true
 command -v update-desktop-database >/dev/null && update-desktop-database -q "$PREFIX/share/applications" || true
-ok "Programm, Befehle, Startmenü-Eintrag"
+ok "Program, commands, menu entry"
 
-# liquidctl nicht als Paket verfügbar? Dann in eine private Python-Umgebung (nur wenn passende USB-Geräte da sind).
+# liquidctl not packaged? Then install it into a private Python environment (only if matching USB devices are present).
 LIQUID_VENDORS="1e71|1b1c|3842|1044|0db0|0cf2|2433"
 if [[ $INSTALL_DEPS -eq 1 ]] && ! have_liquidctl && lsusb 2>/dev/null | grep -qiE "ID ($LIQUID_VENDORS):"; then
-    if ask "USB-Kühlgeräte gefunden, liquidctl fehlt. In eine private Python-Umgebung installieren (pip)?" y; then
+    if ask "USB cooling devices found but liquidctl is missing. Install it into a private Python environment (pip)?" y; then
         if python3 -m venv --system-site-packages "$LIBDIR/venv" >>"$LOG" 2>&1 \
             && "$LIBDIR/venv/bin/pip" install --quiet liquidctl >>"$LOG" 2>&1; then
-            ok "liquidctl in $LIBDIR/venv installiert"
+            ok "liquidctl installed in $LIBDIR/venv"
         else
-            hint "liquidctl konnte nicht installiert werden (Details: $LOG)"
+            hint "liquidctl could not be installed (details: $LOG)"
         fi
     fi
 fi
@@ -298,7 +301,7 @@ fi
 
 install -d -m 755 /etc/fancontrol-linux /etc/fancontrol-linux/profiles
 
-step "Benutzergruppe 'fancontrol'"
+step "User group 'fancontrol'"
 getent group fancontrol >/dev/null || groupadd --system fancontrol 2>/dev/null || addgroup -S fancontrol
 TARGET_USER="${SUDO_USER:-}"
 RELOGIN=0
@@ -307,23 +310,23 @@ if [[ -n "$TARGET_USER" && "$TARGET_USER" != root ]]; then
         usermod -aG fancontrol "$TARGET_USER" 2>/dev/null || addgroup "$TARGET_USER" fancontrol
         RELOGIN=1
     fi
-    ok "$TARGET_USER ist Mitglied"
+    ok "$TARGET_USER is a member"
 fi
-# Ordner für Datei-Sensoren, den Mitglieder der Gruppe beschreiben dürfen (bleibt über Neustarts erhalten).
+# Directory for file sensors that group members may write to (persists across reboots).
 install -d -m 2775 -g fancontrol "$STATE_DIR/sensors"
 chmod 755 "$STATE_DIR"
 
 # --- Hardware ---------------------------------------------------------------------
 MODULES=()
-load_module() {   # load_module <modul> [persistent]
+load_module() {   # load_module <module>
     if modprobe "$1" >>"$LOG" 2>&1; then
         MODULES+=("$1")
-        ok "Treiber geladen: $1"
+        ok "Driver loaded: $1"
         return 0
     fi
     return 1
 }
-pwm_count() {   # ohne Pipeline: ein fehlender Treffer darf unter "set -e -o pipefail" nicht abbrechen
+pwm_count() {   # no pipeline: a missing match must not abort under "set -e -o pipefail"
     local f n=0
     for f in /sys/class/hwmon/*/pwm[0-9]; do [[ -e $f ]] && n=$((n + 1)); done
     echo "$n"
@@ -339,53 +342,53 @@ regen_initramfs() {
 }
 
 if [[ $SETUP_HARDWARE -eq 1 ]]; then
-    step "Mainboard-Sensoren erkennen (sensors-detect)"
+    step "Detecting mainboard sensors (sensors-detect)"
     BEFORE=$(pwm_count)
     if command -v sensors-detect >/dev/null; then
         DETECT_LOG=/var/log/fancontrol-linux-sensors-detect.log
-        # --auto beantwortet alle Fragen mit der (sicheren) Standardantwort.
+        # --auto answers every question with the (safe) default answer.
         if yes "" | timeout 180 sensors-detect --auto > "$DETECT_LOG" 2>&1; then
-            ok "Ausgabe gespeichert in $DETECT_LOG"
+            ok "Output saved to $DETECT_LOG"
         else
-            warn "sensors-detect meldete Fehler (Details: $DETECT_LOG)"
+            warn "sensors-detect reported errors (details: $DETECT_LOG)"
         fi
         mapfile -t DETECTED < <(sed -n '/Chip drivers/,/#----cut here----/p' "$DETECT_LOG" \
             | grep -oE '^(modprobe )?[a-z0-9_-]+$' | sed 's/^modprobe //' | grep -vE '^(cut|chip)$' | sort -u || true)
-        for m in "${DETECTED[@]}"; do load_module "$m" || warn "Treiber $m ließ sich nicht laden"; done
-        [[ ${#DETECTED[@]} -eq 0 ]] && warn "sensors-detect hat keine Chip-Treiber vorgeschlagen"
+        for m in "${DETECTED[@]}"; do load_module "$m" || warn "Driver $m could not be loaded"; done
+        [[ ${#DETECTED[@]} -eq 0 ]] && warn "sensors-detect did not suggest any chip drivers"
         if grep -q "ITE" "$DETECT_LOG" && ! grep -qsx 'it87' /sys/class/hwmon/*/name; then
             ITE_UNSUPPORTED=1
         fi
     else
-        warn "sensors-detect nicht gefunden (Paket lm-sensors)"
+        warn "sensors-detect not found (package lm-sensors)"
     fi
 
-    # Bekannte Konflikte mit ACPI: it87/nct6775 werden dann nicht geladen.
+    # Known conflicts with ACPI: it87/nct6775 are not loaded then.
     if dmesg 2>/dev/null | grep -qiE "(it87|nct6775).*(resource conflict|ACPI)"; then
         CONFLICT=1
     fi
     if [[ ${ITE_UNSUPPORTED:-0} -eq 1 || ( ${CONFLICT:-0} -eq 1 && $(pwm_count) -eq 0 ) ]]; then
-        warn "ITE-Chip gefunden, aber nicht unterstützt oder durch ACPI blockiert."
-        if [[ $IT87_DKMS == yes ]] || ask "Aktuellen it87-Treiber (github.com/frankcrawford/it87) per DKMS installieren?" n; then
-            if install_role dkms "Build-Werkzeuge und Kernel-Header"; then
+        warn "ITE chip found, but not supported or blocked by ACPI."
+        if [[ $IT87_DKMS == yes ]] || ask "Install the current it87 driver (github.com/frankcrawford/it87) via DKMS?" n; then
+            if install_role dkms "Build tools and kernel headers"; then
                 rm -rf /usr/src/it87-fancontrol-linux
                 if git clone --depth 1 https://github.com/frankcrawford/it87 /usr/src/it87-fancontrol-linux >>"$LOG" 2>&1 \
                     && (cd /usr/src/it87-fancontrol-linux && ./dkms-install.sh) >>"$LOG" 2>&1; then
-                    ok "it87 per DKMS installiert"
+                    ok "it87 installed via DKMS"
                     echo "options it87 ignore_resource_conflict=1" > /etc/modprobe.d/fancontrol-linux-it87.conf
                     record /etc/modprobe.d/fancontrol-linux-it87.conf
                     modprobe -r it87 >>"$LOG" 2>&1 || true
-                    load_module it87 || hint "it87 lädt noch nicht – nach einem Neustart erneut prüfen"
+                    load_module it87 || hint "it87 does not load yet – check again after a reboot"
                 else
-                    hint "DKMS-Installation von it87 fehlgeschlagen (Details: $LOG)"
+                    hint "DKMS installation of it87 failed (details: $LOG)"
                 fi
             fi
         else
-            hint "Für ITE-Chips: sudo ./install.sh --it87-dkms, oder Kernelparameter acpi_enforce_resources=lax"
+            hint "For ITE chips: sudo ./install.sh --it87-dkms, or the kernel parameter acpi_enforce_resources=lax"
         fi
     fi
 
-    step "Hersteller-spezifische Unterstützung"
+    step "Vendor-specific support"
     VENDOR=$(dmi sys_vendor)
     BOARD="$(dmi board_vendor) $(dmi board_name)"
     echo "  System: $VENDOR / $BOARD"
@@ -393,15 +396,15 @@ if [[ $SETUP_HARDWARE -eq 1 ]]; then
         *dell*)
             load_module dell_smm_hwmon || { echo "options dell_smm_hwmon ignore_dmi=1" > /etc/modprobe.d/fancontrol-linux-dell.conf
                 record /etc/modprobe.d/fancontrol-linux-dell.conf
-                load_module dell_smm_hwmon || hint "Dell: dell_smm_hwmon wird von diesem Modell nicht unterstützt"; } ;;
+                load_module dell_smm_hwmon || hint "Dell: dell_smm_hwmon does not support this model"; } ;;
         *lenovo*)
             if [[ -d /sys/module/thinkpad_acpi ]]; then
                 if [[ $(cat /sys/module/thinkpad_acpi/parameters/fan_control 2>/dev/null) == Y ]]; then
-                    ok "ThinkPad-Lüftersteuerung ist freigeschaltet"
-                elif [[ $THINKPAD == yes ]] || ask "ThinkPad: Lüftersteuerung freischalten (thinkpad_acpi fan_control=1)?" y; then
+                    ok "ThinkPad fan control is enabled"
+                elif [[ $THINKPAD == yes ]] || ask "ThinkPad: enable fan control (thinkpad_acpi fan_control=1)?" y; then
                     echo "options thinkpad_acpi fan_control=1" > /etc/modprobe.d/fancontrol-linux-thinkpad.conf
                     record /etc/modprobe.d/fancontrol-linux-thinkpad.conf
-                    hint "ThinkPad: Lüftersteuerung wird nach einem Neustart aktiv"
+                    hint "ThinkPad: fan control becomes active after a reboot"
                 fi
             fi ;;
     esac
@@ -410,22 +413,22 @@ if [[ $SETUP_HARDWARE -eq 1 ]]; then
         load_module asus_wmi_sensors || true
     fi
     if [[ -d /sys/class/hwmon ]] && grep -qsE "^(nzxt|corsair|aquacomputer|d5next|octo|quadro|highflownext|kraken)" /sys/class/hwmon/*/name; then
-        ok "USB-Kühlgeräte mit Kerneltreiber: $(cat /sys/class/hwmon/*/name | grep -E '^(nzxt|corsair|aquacomputer|d5next|octo|quadro|highflownext|kraken)' | sort -u | tr '\n' ' ')"
+        ok "USB cooling devices with kernel drivers: $(cat /sys/class/hwmon/*/name | grep -E '^(nzxt|corsair|aquacomputer|d5next|octo|quadro|highflownext|kraken)' | sort -u | tr '\n' ' ')"
     fi
 
-    step "Grafikkarten"
+    step "Graphics cards"
     GPUS=$(lspci -nn 2>/dev/null | grep -E '\[03[0-9a-f]{2}\]' || true)
     if grep -q '\[10de:' <<<"$GPUS"; then
         if [[ -d /sys/module/nvidia ]]; then
             if ldconfig -p 2>/dev/null | grep -q 'libnvidia-ml.so.1'; then
-                ok "NVIDIA: Treiber und NVML vorhanden – Lüfter steuerbar"
+                ok "NVIDIA: driver and NVML present – fans controllable"
             else
-                hint "NVIDIA: libnvidia-ml fehlt (Teil des NVIDIA-Treiberpakets, z. B. libnvidia-compute-* / nvidia-utils)"
+                hint "NVIDIA: libnvidia-ml is missing (part of the NVIDIA driver package, e.g. libnvidia-compute-* / nvidia-utils)"
             fi
         elif [[ -d /sys/module/nouveau ]]; then
-            hint "NVIDIA: Der freie nouveau-Treiber kann Lüfter kaum steuern. Proprietären Treiber installieren (Ubuntu: sudo ubuntu-drivers install)."
+            hint "NVIDIA: the free nouveau driver can hardly control fans. Install the proprietary driver (Ubuntu: sudo ubuntu-drivers install)."
         else
-            hint "NVIDIA: kein Treiber geladen"
+            hint "NVIDIA: no driver loaded"
         fi
     fi
     if grep -q '\[1002:' <<<"$GPUS"; then
@@ -433,84 +436,84 @@ if [[ $SETUP_HARDWARE -eq 1 ]]; then
             [[ $(cat "$card/device/vendor" 2>/dev/null) == 0x1002 ]] || continue
             major=$(cat "$card/device/ip_discovery/die/0/GC/0/major" 2>/dev/null || echo 0)
             if [[ -e "$card/device/gpu_od/fan_ctrl/fan_curve" ]]; then
-                ok "AMD $(basename "$card"): Overdrive-Lüftersteuerung aktiv"
+                ok "AMD $(basename "$card"): overdrive fan control active"
             elif [[ $major -ge 11 ]]; then
-                warn "AMD $(basename "$card") (RDNA3/4): Lüftersteuerung braucht aktiviertes Overdrive (amdgpu.ppfeaturemask)."
-                if [[ $AMD_OVERDRIVE == yes ]] || ask "Overdrive aktivieren? (Kernel-Option, neues initramfs, danach Neustart; der Kernel meldet sich dann als 'tainted')" n; then
+                warn "AMD $(basename "$card") (RDNA3/4): fan control needs overdrive enabled (amdgpu.ppfeaturemask)."
+                if [[ $AMD_OVERDRIVE == yes ]] || ask "Enable overdrive? (kernel option, new initramfs, then reboot; the kernel then reports itself as 'tainted')" n; then
                     echo "options amdgpu ppfeaturemask=0xffffffff" > /etc/modprobe.d/fancontrol-linux-amdgpu.conf
                     record /etc/modprobe.d/fancontrol-linux-amdgpu.conf
-                    if regen_initramfs; then hint "AMD: Overdrive nach dem nächsten Neustart aktiv"
-                    else hint "AMD: initramfs konnte nicht neu erzeugt werden – bitte manuell (Details: $LOG)"; fi
+                    if regen_initramfs; then hint "AMD: overdrive active after the next reboot"
+                    else hint "AMD: the initramfs could not be regenerated – please do it manually (details: $LOG)"; fi
                 else
-                    hint "AMD RDNA3/4: sudo ./install.sh --amd-overdrive schaltet die Lüftersteuerung frei"
+                    hint "AMD RDNA3/4: sudo ./install.sh --amd-overdrive enables fan control"
                 fi
             else
-                ok "AMD $(basename "$card"): Steuerung über amdgpu"
+                ok "AMD $(basename "$card"): controlled through amdgpu"
             fi
         done
     fi
     if grep -qiE '\[8086:.*(arc|dg2|battlemage)' <<<"$GPUS"; then
-        hint "Intel Arc: Temperaturen werden angezeigt, eine Lüftersteuerung bietet der Linux-Treiber bisher nicht"
+        hint "Intel Arc: temperatures are shown, the Linux driver does not offer fan control yet"
     fi
 
     if [[ ${#MODULES[@]} -gt 0 ]]; then
         CONF=/etc/modules-load.d/fancontrol-linux.conf
         mkdir -p /etc/modules-load.d
-        { echo "# Von FanControl for Linux geladen"; printf '%s\n' "${MODULES[@]}" | sort -u; } > "$CONF"
+        { echo "# Loaded by Linux FanControl"; printf '%s\n' "${MODULES[@]}" | sort -u; } > "$CONF"
         record "$CONF"
-        ok "Treiber werden beim Start automatisch geladen ($CONF)"
+        ok "Drivers are loaded automatically at boot ($CONF)"
     fi
     AFTER=$(pwm_count)
-    echo "  Steuerbare Mainboard-/GPU-Ausgänge (hwmon): vorher $BEFORE, jetzt $AFTER"
+    echo "  Controllable mainboard/GPU outputs (hwmon): before $BEFORE, now $AFTER"
 fi
 
-# Tray unter GNOME braucht die AppIndicator-Erweiterung.
+# The tray under GNOME needs the AppIndicator extension.
 if [[ $INSTALL_DEPS -eq 1 ]] && pgrep -x gnome-shell >/dev/null 2>&1; then
-    step "GNOME: Tray-Unterstützung"
-    if install_role appindicator "AppIndicator-Erweiterung"; then
-        hint "GNOME: Erweiterung 'AppIndicator and KStatusNotifierItem Support' in der Erweiterungen-App aktivieren (nach Neuanmeldung)"
+    step "GNOME: tray support"
+    if install_role appindicator "AppIndicator extension"; then
+        hint "GNOME: enable the extension 'AppIndicator and KStatusNotifierItem Support' in the Extensions app (after logging in again)"
     fi
 fi
 
-# --- Dienst -------------------------------------------------------------------------
+# --- Service --------------------------------------------------------------------------
 if [[ $WITH_SERVICE -eq 1 ]]; then
-    step "Hintergrunddienst ($INIT)"
+    step "Background service ($INIT)"
     case "$INIT" in
         systemd|systemd-offline)
             install -Dm 644 "$SRC/data/fancontrol-linux.service" /etc/systemd/system/fancontrol-linux.service
             if [[ $INIT == systemd ]]; then
                 systemctl daemon-reload
                 if systemctl is-active --quiet fancontrol.service; then
-                    warn "lm-sensors-Dienst 'fancontrol' wird deaktiviert (beide würden sich stören)"
+                    warn "Disabling the lm-sensors service 'fancontrol' (both would interfere)"
                     systemctl disable --now fancontrol.service || true
                 fi
                 systemctl enable fancontrol-linux.service >>"$LOG" 2>&1
                 systemctl restart fancontrol-linux.service
                 sleep 1
-                if systemctl is-active --quiet fancontrol-linux.service; then ok "Dienst läuft"
-                else fail "Dienst startet nicht – journalctl -u fancontrol-linux zeigt die Ursache"; fi
+                if systemctl is-active --quiet fancontrol-linux.service; then ok "Service running"
+                else fail "Service does not start – journalctl -u fancontrol-linux shows the cause"; fi
             else
                 systemctl enable fancontrol-linux.service >>"$LOG" 2>&1 || true
-                warn "systemd läuft hier nicht (Container?) – Dienst ist eingerichtet und startet beim nächsten Boot"
+                warn "systemd is not running here (container?) – the service is set up and starts at the next boot"
             fi ;;
         openrc)
             install -Dm 755 "$SRC/data/openrc/fancontrol-linux" /etc/init.d/fancontrol-linux
             rc-update add fancontrol-linux default >>"$LOG" 2>&1 || true
-            rc-service fancontrol-linux restart >>"$LOG" 2>&1 && ok "Dienst läuft" || warn "Dienst konnte nicht gestartet werden (Details: $LOG)" ;;
+            rc-service fancontrol-linux restart >>"$LOG" 2>&1 && ok "Service running" || warn "Service could not be started (details: $LOG)" ;;
         runit)
             install -Dm 755 "$SRC/data/runit/run" /etc/sv/fancontrol-linux/run
             ln -sfn /etc/sv/fancontrol-linux /var/service/fancontrol-linux 2>/dev/null \
                 || ln -sfn /etc/sv/fancontrol-linux /etc/runit/runsvdir/default/fancontrol-linux 2>/dev/null || true
-            ok "runit-Dienst eingerichtet" ;;
+            ok "runit service set up" ;;
         *)
-            hint "Kein unterstütztes Init-System gefunden – Dienst manuell starten: sudo fancontrol-linuxd" ;;
+            hint "No supported init system found – start the service manually: sudo fancontrol-linuxd" ;;
     esac
 fi
 
-# --- Zusammenfassung ------------------------------------------------------------------
-step "Erkannte Hardware"
+# --- Summary -------------------------------------------------------------------
+step "Detected hardware"
 if [[ -n $APPIMAGE_SRC ]]; then SUMMARY=("$OPT/AppRun" --python -); else SUMMARY=(env PYTHONPATH="$LIBDIR" python3 -); fi
-"${SUMMARY[@]}" <<'EOF' 2>>"$LOG" || warn "Übersicht nicht verfügbar (Details: $LOG)"
+"${SUMMARY[@]}" <<'EOF' 2>>"$LOG" || warn "Overview not available (details: $LOG)"
 from fancontrol_linux.hwmon import Hardware
 marks = {"ok": "✓", "warn": "!", "off": "-"}
 for row in Hardware().info():
@@ -519,12 +522,13 @@ EOF
 
 echo
 if [[ ${#HINTS[@]} -gt 0 ]]; then
-    echo "${B}Hinweise:${N}"
+    echo "${B}Notes:${N}"
     printf '  • %s\n' "${HINTS[@]}"
     echo
 fi
-echo "${G}Fertig.${N} Starte 'FanControl' aus dem Anwendungsmenü oder mit: fancontrol-linux"
-echo "Protokoll: $LOG"
+echo "${G}Done.${N} Start 'Linux FanControl' from the application menu or with: fancontrol-linux"
+echo "Log: $LOG"
+echo "Update later with: sudo fancontrol-linux-upgrade"
 if [[ $RELOGIN -eq 1 ]]; then
-    echo "${B}WICHTIG:${N} '$TARGET_USER' wurde zur Gruppe 'fancontrol' hinzugefügt – bitte einmal ab- und wieder anmelden."
+    echo "${B}IMPORTANT:${N} '$TARGET_USER' was added to the group 'fancontrol' – please log out and back in once."
 fi

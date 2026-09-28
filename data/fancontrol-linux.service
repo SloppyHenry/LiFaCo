@@ -1,5 +1,5 @@
 [Unit]
-Description=FanControl for Linux (Lüftersteuerung)
+Description=Linux FanControl (fan control)
 After=systemd-modules-load.service lm-sensors.service
 Conflicts=fancontrol.service
 

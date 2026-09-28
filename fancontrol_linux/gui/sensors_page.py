@@ -10,22 +10,22 @@ from . import common as ui  # noqa: E402
 from .util import entry_row, fmt_pct, fmt_rpm, fmt_temp, value_label  # noqa: E402
 
 CUSTOM_NAMES = {
-    "mix": "Mix-Sensor",
-    "average": "Zeitdurchschnitt",
-    "offset": "Offset-Sensor",
-    "file": "Datei-Sensor",
+    "mix": "Mix sensor",
+    "average": "Time average",
+    "offset": "Offset sensor",
+    "file": "File sensor",
 }
 CUSTOM_HELP = (
-    "Eigene Sensoren sind berechnete Temperaturen, die wie normale Sensoren in Kurven verwendet werden können.\n\n"
-    "• Mix: Maximum, Minimum, Durchschnitt, Summe oder Differenz mehrerer Sensoren. "
-    "„Fehlende erlauben“ rechnet mit den restlichen weiter, wenn ein Sensor ausfällt.\n"
-    "• Zeitdurchschnitt: glättet einen Sensor über einen Zeitraum (1–3600 s).\n"
-    "• Offset: addiert einen festen Wert oder einen Prozentsatz.\n"
-    "• Datei: liest die Temperatur (°C, erste Zeile) aus einer Datei. Aus Sicherheitsgründen nur aus "
-    "/run/fancontrol-linux/sensors/ (für Mitglieder der Gruppe fancontrol beschreibbar), "
-    "/var/lib/fancontrol-linux/sensors/ oder /sys/. So können Skripte und andere Programme Werte liefern."
+    "Custom sensors are calculated temperatures that can be used in curves like normal sensors.\n\n"
+    "• Mix: maximum, minimum, average, sum or difference of several sensors. "
+    "“Allow missing” keeps calculating with the remaining ones if a sensor fails.\n"
+    "• Time average: smooths a sensor over a period (1–3600 s).\n"
+    "• Offset: adds a fixed value or a percentage.\n"
+    "• File: reads the temperature (°C, first line) from a file. For security reasons only from "
+    "/run/fancontrol-linux/sensors/ (writable for members of the fancontrol group), "
+    "/var/lib/fancontrol-linux/sensors/ or /sys/. This lets scripts and other programs provide values."
 )
-FUNCTIONS = [("max", "Maximum"), ("min", "Minimum"), ("avg", "Durchschnitt"), ("sum", "Summe"), ("sub", "Subtrahieren")]
+FUNCTIONS = [("max", "Maximum"), ("min", "Minimum"), ("avg", "Average"), ("sum", "Sum"), ("sub", "Subtract")]
 
 
 class SensorsPage(Adw.Bin):
@@ -41,23 +41,23 @@ class SensorsPage(Adw.Bin):
         self.custom_live = {}
         st = win.status
         if st is None or win.config is None:
-            self.set_child(ui.status_page("Verbinde mit Dienst …", "", "network-transmit-receive-symbolic"))
+            self.set_child(ui.status_page("Connecting to the service …", "", "network-transmit-receive-symbolic"))
             return
-        custom_box, flow = ui.section("Eigene Sensoren", CUSTOM_HELP)
+        custom_box, flow = ui.section("Custom sensors", CUSTOM_HELP)
         sensors = [s for s in win.config["custom_sensors"] if win.is_visible_item("custom:" + s["id"])]
         for sensor in sensors:
             flow.append(self._card(sensor))
         if not sensors:
-            custom_box.append(ui.caption("Noch keine eigenen Sensoren – lege mit + einen an."))
+            custom_box.append(ui.caption("No custom sensors yet – add one with +."))
 
         hardware = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
         hardware.append(Gtk.Label(label="Hardware", css_classes=["fc-page-title"], xalign=0))
-        for title, key, fmt in (("Temperaturen", "temps", fmt_temp), ("Lüfter", "fans", fmt_rpm),
-                                ("Lüfterausgänge", "pwms", fmt_pct)):
-            group = Adw.PreferencesGroup(title=title, description="Eigene Namen eintragen und mit ✓ übernehmen")
+        for title, key, fmt in (("Temperatures", "temps", fmt_temp), ("Fans", "fans", fmt_rpm),
+                                ("Fan outputs", "pwms", fmt_pct)):
+            group = Adw.PreferencesGroup(title=title, description="Enter your own names and confirm with ✓")
             items = {k: v for k, v in st[key].items() if not v.get("custom")}
             if not items:
-                group.add(Adw.ActionRow(title="Keine gefunden"))
+                group.add(Adw.ActionRow(title="None found"))
             for sid, info in items.items():
                 row = entry_row(info["label"], win.config["sensor_names"].get(sid, ""),
                                 lambda text, s=sid: self._rename(s, text))
@@ -69,7 +69,7 @@ class SensorsPage(Adw.Bin):
             hardware.append(group)
 
         overlay = Gtk.Overlay(child=ui.scroller([custom_box, hardware]))
-        overlay.add_overlay(ui.fab("Eigenen Sensor hinzufügen",
+        overlay.add_overlay(ui.fab("Add custom sensor",
                                    [("fc-custom-sensor-symbolic", n, lambda k=k: self._add(k))
                                     for k, n in CUSTOM_NAMES.items()]))
         self.set_child(overlay)
@@ -95,14 +95,14 @@ class SensorsPage(Adw.Bin):
         sid = "custom:" + sensor["id"]
         users = [c["name"] for c in win.config["curves"] if sid in c.get("sensors", [])]
         users += [s["name"] for s in win.config["custom_sensors"] if sid in s.get("sensors", []) or s.get("sensor") == sid]
-        body = "Der Sensor wird entfernt."
+        body = "The sensor will be removed."
         if users:
-            body += "\n\nVerwendet von: " + ", ".join(users) + ".\nDort fehlt er danach – betroffene Lüfter laufen auf 100 %."
+            body += "\n\nUsed by: " + ", ".join(users) + ".\nIt will be missing there – affected fans run at 100 %."
 
         def confirmed():
             win.config["custom_sensors"] = [s for s in win.config["custom_sensors"] if s["id"] != sensor["id"]]
             win.config_changed(rebuild={"sensors", "curves"})
-        win.confirm(f"„{sensor['name']}“ löschen?", body, "Löschen", confirmed, destructive=True)
+        win.confirm(f"Delete “{sensor['name']}”?", body, "Delete", confirmed, destructive=True)
 
     def _sources(self, exclude):
         temps = (self.win.status or {}).get("temps", {})
@@ -125,7 +125,7 @@ class SensorsPage(Adw.Bin):
 
         c = ui.card(hidden=sid in win.config["hidden"])
         ui.card_header(c, "fc-custom-sensor-symbolic", ui.name_entry(sensor["name"], "Name", rename),
-                       [ui.hidden_menu_item(win, sid), ("Löschen", lambda: self._delete(sensor))],
+                       [ui.hidden_menu_item(win, sid), ("Delete", lambda: self._delete(sensor))],
                        icon_tooltip=CUSTOM_NAMES[sensor["type"]])
         value = Gtk.Label(css_classes=["fc-big", "numeric"], xalign=0)
         c.append(value)
@@ -134,12 +134,12 @@ class SensorsPage(Adw.Bin):
         sources = self._sources(sid)
         if kind == "mix":
             keys = [k for k, _ in FUNCTIONS]
-            c.append(ui.labeled("Funktion", ui.dropdown([n for _, n in FUNCTIONS], keys.index(sensor["function"]),
+            c.append(ui.labeled("Function", ui.dropdown([n for _, n in FUNCTIONS], keys.index(sensor["function"]),
                                                         lambda i: setter("function")(keys[i]))))
             ui.picker_list(c, win, list(sensor["sensors"]), sources, setter("sensors", {"sensors"}),
-                           "Keine Sensoren gewählt")
-            c.append(ui.switch_line("Fehlende erlauben", sensor["allow_missing"], setter("allow_missing"),
-                                    "Mit den verbleibenden Sensoren weiterrechnen, wenn einer ausfällt"))
+                           "No sensors selected")
+            c.append(ui.switch_line("Allow missing", sensor["allow_missing"], setter("allow_missing"),
+                                    "Keep calculating with the remaining sensors if one fails"))
         elif kind in ("average", "offset"):
             ids = [s for s, _l in sources]
             labels = [lbl for _s, lbl in sources]
@@ -147,15 +147,15 @@ class SensorsPage(Adw.Bin):
                 ids.append(sensor["sensor"])
                 labels.append(f"{sensor['sensor']} (fehlt)")
             if not sensor["sensor"]:
-                ids, labels = [None] + ids, ["Sensor wählen …"] + labels
+                ids, labels = [None] + ids, ["Choose sensor …"] + labels
 
             def pick(i):
                 if ids[i] is not None:
                     setter("sensor")(ids[i])
-            c.append(ui.labeled("Quelle", ui.dropdown(labels, ids.index(sensor["sensor"]) if sensor["sensor"] in ids else 0,
+            c.append(ui.labeled("Source", ui.dropdown(labels, ids.index(sensor["sensor"]) if sensor["sensor"] in ids else 0,
                                                       pick)))
             if kind == "average":
-                c.append(ui.labeled("Zeitraum s", ui.spin(sensor["seconds"], 1, 3600, 1, setter("seconds"))))
+                c.append(ui.labeled("Period s", ui.spin(sensor["seconds"], 1, 3600, 1, setter("seconds"))))
             else:
                 grid = Gtk.Grid(column_spacing=10, row_spacing=8, column_homogeneous=True)
                 offset_spin = (ui.spin(sensor["offset"], -100, 100, 0.5, setter("offset"), 1) if sensor["proportional"]
@@ -174,8 +174,8 @@ class SensorsPage(Adw.Bin):
                     return
                 if not file_path_allowed(path):
                     entry.add_css_class("error")
-                    win.toast("Pfad nicht erlaubt – nur /run/fancontrol-linux/sensors/, "
-                              "/var/lib/fancontrol-linux/sensors/ oder /sys/")
+                    win.toast("Path not allowed – only /run/fancontrol-linux/sensors/, "
+                              "/var/lib/fancontrol-linux/sensors/ or /sys/")
                     return
                 entry.remove_css_class("error")
                 setter("path")(path)
@@ -183,8 +183,8 @@ class SensorsPage(Adw.Bin):
             focus = Gtk.EventControllerFocus()
             focus.connect("leave", apply_path)
             entry.add_controller(focus)
-            c.append(ui.labeled("Datei", entry))
-            c.append(ui.caption("Erste Zeile = Temperatur in °C. Erlaubt: /run/fancontrol-linux/sensors/, "
+            c.append(ui.labeled("File", entry))
+            c.append(ui.caption("First line = temperature in °C. Allowed: /run/fancontrol-linux/sensors/, "
                                 "/var/lib/fancontrol-linux/sensors/, /sys/"))
         self.custom_live[sid] = value
         return c
@@ -199,4 +199,4 @@ class SensorsPage(Adw.Bin):
             label.set_label(fmt(value))
         for sid, label in self.custom_live.items():
             info = st["temps"].get(sid)
-            label.set_label(fmt_temp(info["value"]) if info and info["value"] is not None else "– (keine Daten)")
+            label.set_label(fmt_temp(info["value"]) if info and info["value"] is not None else "– (no data)")

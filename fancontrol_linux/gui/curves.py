@@ -14,13 +14,13 @@ from .util import (combo_row, delta_to_disp, entry_row, fmt_pct, fmt_temp, spin_
                    temp_spin_row, temp_unit, value_label)
 
 TYPE_NAMES = {
-    "graph": "Grafische Kurve",
+    "graph": "Graph",
     "linear": "Linear",
-    "flat": "Fester Wert",
-    "mix": "Mix aus Kurven",
-    "trigger": "Auslöser (Leerlauf/Last)",
-    "sync": "Sync (folgt Steuerung)",
-    "auto": "Auto (Zieltemperatur)",
+    "flat": "Flat",
+    "mix": "Mix",
+    "trigger": "Trigger (idle/load)",
+    "sync": "Sync (follows a control)",
+    "auto": "Auto (target temperature)",
 }
 TYPE_ICONS = {
     "graph": "fc-curve-graph-symbolic",
@@ -32,31 +32,31 @@ TYPE_ICONS = {
     "auto": "fc-curve-auto-symbolic",
 }
 TYPE_HELP = {
-    "graph": "Frei definierbare Kurve: Jeder Punkt legt fest, welche Drehzahl bei welcher Temperatur gilt. "
-             "Dazwischen wird linear gerechnet, außerhalb gilt der erste bzw. letzte Punkt.",
-    "linear": "Gerade Linie: unterhalb der Min-Temperatur gilt die Min-Drehzahl, oberhalb der Max-Temperatur "
-              "die Max-Drehzahl, dazwischen linear.",
-    "flat": "Liefert immer den gleichen Wert, unabhängig von Temperaturen.",
-    "mix": "Kombiniert mehrere Kurven: Maximum, Minimum, Durchschnitt, Summe oder Subtraktion "
-           "(erste Kurve minus alle weiteren).",
-    "trigger": "Zwei Zustände: Leerlauf und Last. Erreicht die Temperatur die Last-Temperatur, springt der Lüfter "
-               "auf die Last-Drehzahl und bleibt dort, bis die Leerlauf-Temperatur wieder unterschritten wird. "
-               "Reaktionszeit hoch/runter: so lange muss der Zustand anhalten.",
-    "sync": "Übernimmt den Prozentwert einer anderen Steuerung – plus Offset in Prozentpunkten, oder "
-            "proportional (z. B. +20 % → 50 % wird zu 60 %).",
-    "auto": "Regelt selbstständig: Liegt die Temperatur über der Last-Temperatur (plus Totband), wird die Drehzahl "
-            "um „Schritt %/s“ erhöht, darunter wieder gesenkt – so wird die niedrigste Drehzahl gefunden, die die "
-            "Zieltemperatur hält. Unter der Leerlauf-Temperatur gilt die Min-Drehzahl.",
+    "graph": "Freely defined curve: each point sets the speed for a temperature. "
+             "In between the speed is interpolated linearly; outside, the first or last point applies.",
+    "linear": "Straight line: below the min temperature the min speed applies, above the max temperature "
+              "the max speed, linear in between.",
+    "flat": "Always returns the same value, regardless of temperatures.",
+    "mix": "Combines several curves: maximum, minimum, average, sum or subtraction "
+           "(first curve minus all others).",
+    "trigger": "Two states: idle and load. When the temperature reaches the load temperature, the fan jumps "
+               "to the load speed and stays there until the temperature drops below the idle temperature again. "
+               "Response time up/down: how long the state must persist.",
+    "sync": "Takes the percentage of another control – plus an offset in percentage points, or "
+            "proportionally (e.g. +20 % → 50 % becomes 60 %).",
+    "auto": "Regulates on its own: above the load temperature (plus deadband) the speed rises by "
+            "“Step %/s”, below it falls again – finding the lowest speed that holds the target temperature. "
+            "Below the idle temperature the min speed applies.",
 }
-HYST_HELP = ("Hysterese: Die Kurve reagiert erst, wenn sich die Temperatur um mindestens diesen Wert geändert hat "
-             "(getrennt für steigend ↑ und fallend ↓). Reaktionszeit: So lange muss die Änderung anhalten.")
-SENSOR_MIX = [("max", "Maximum"), ("min", "Minimum"), ("avg", "Durchschnitt")]
-CURVE_MIX = [("max", "Maximum"), ("min", "Minimum"), ("avg", "Durchschnitt"), ("sum", "Summe"), ("sub", "Subtrahieren")]
+HYST_HELP = ("Hysteresis: the curve only reacts once the temperature has changed by at least this amount "
+             "(separately for rising ↑ and falling ↓). Response time: how long the change must persist.")
+SENSOR_MIX = [("max", "Maximum"), ("min", "Minimum"), ("avg", "Average")]
+CURVE_MIX = [("max", "Maximum"), ("min", "Minimum"), ("avg", "Average"), ("sum", "Sum"), ("sub", "Subtract")]
 CURVES_HELP = (
-    "Kurven berechnen die Drehzahl in Prozent – oder im RPM-Modus als Drehzahl, die kalibrierte Lüfter dann "
-    "anfahren. Eine Kurve kann mehreren Lüftern zugewiesen werden.\n\n"
-    "Über + legst du Kurven an. Ein Klick auf das Symbol einer Kachel erklärt den Kurventyp, "
-    "„Bearbeiten“ öffnet den großen Editor mit allen Optionen."
+    "Curves calculate the fan speed in percent – or, in RPM mode, a speed that calibrated fans then "
+    "target. A curve can be assigned to several fans.\n\n"
+    "Use + to add curves. Clicking a card's icon explains the curve type, "
+    "“Edit” opens the large editor with all options."
 )
 
 
@@ -95,17 +95,17 @@ class CurvesPage(Adw.Bin):
         win = self.win
         self.live = {}
         if win.config is None:
-            self.set_child(ui.status_page("Verbinde mit Dienst …", "", "network-transmit-receive-symbolic"))
+            self.set_child(ui.status_page("Connecting to the service …", "", "network-transmit-receive-symbolic"))
             return
-        page, flow = ui.grid_page("Kurven", CURVES_HELP)
+        page, flow = ui.grid_page("Curves", CURVES_HELP)
         visible = [c for c in win.config["curves"] if win.is_visible_item(c["id"])]
         for curve in visible:
             flow.append(self._card(curve))
         overlay = Gtk.Overlay(child=page)
         if not visible:
-            overlay.add_overlay(Gtk.Label(label="Noch keine Kurven – lege mit + eine an.", css_classes=["dim-label"],
+            overlay.add_overlay(Gtk.Label(label="No curves yet – add one with +.", css_classes=["dim-label"],
                                           halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER))
-        overlay.add_overlay(ui.fab("Kurve hinzufügen", [(TYPE_ICONS[k], n, lambda k=k: self.add(k))
+        overlay.add_overlay(ui.fab("Add curve", [(TYPE_ICONS[k], n, lambda k=k: self.add(k))
                                                         for k, n in TYPE_NAMES.items()]))
         self.set_child(overlay)
         self.update_live()
@@ -124,7 +124,7 @@ class CurvesPage(Adw.Bin):
     def _duplicate(self, curve):
         dup = copy.deepcopy(curve)
         dup["id"] = cfgmod.new_id()
-        dup["name"] = f"{curve['name']} (Kopie)"
+        dup["name"] = f"{curve['name']} (copy)"
         self.win.config["curves"].append(dup)
         self.win.config_changed(rebuild={"curves", "controls"})
 
@@ -133,9 +133,9 @@ class CurvesPage(Adw.Bin):
         users = [win.display_name(c["id"]) for c in win.config["controls"]
                  if c["curve"] == curve["id"] and c["mode"] == "curve"]
         users += [c["name"] for c in win.config["curves"] if curve["id"] in c.get("curves", [])]
-        body = "Die Kurve wird entfernt."
+        body = "The curve will be removed."
         if users:
-            body += "\n\nVerwendet von: " + ", ".join(users) + ".\nBetroffene Lüfter gehen zurück in die Automatik."
+            body += "\n\nUsed by: " + ", ".join(users) + ".\nAffected fans return to automatic control."
 
         def confirmed():
             cid = curve["id"]
@@ -149,7 +149,7 @@ class CurvesPage(Adw.Bin):
             if after:
                 after()
             win.config_changed(rebuild={"curves", "controls"})
-        win.confirm(f"„{curve['name']}“ löschen?", body, "Löschen", confirmed, destructive=True)
+        win.confirm(f"Delete “{curve['name']}”?", body, "Delete", confirmed, destructive=True)
 
     def open_editor(self, curve):
         self.dialog = CurveEditorDialog(self.win, curve, self)
@@ -181,11 +181,11 @@ class CurvesPage(Adw.Bin):
 
         c = ui.card(hidden=curve["id"] in win.config["hidden"])
         ui.card_header(c, TYPE_ICONS[curve["type"]], ui.name_entry(curve["name"], "Name", rename),
-                       [("Bearbeiten …", lambda: self.open_editor(curve)),
-                        ("Duplizieren", lambda: self._duplicate(curve)),
+                       [("Edit …", lambda: self.open_editor(curve)),
+                        ("Duplicate", lambda: self._duplicate(curve)),
                         ui.hidden_menu_item(win, curve["id"]),
-                        ("Löschen", lambda: self.delete(curve))],
-                       icon_tooltip=f"{TYPE_NAMES[curve['type']]} – Hilfe", on_icon=lambda: self.show_help(curve))
+                        ("Delete", lambda: self.delete(curve))],
+                       icon_tooltip=f"{TYPE_NAMES[curve['type']]} – help", on_icon=lambda: self.show_help(curve))
 
         kind = curve["type"]
         top, step = _speed_top(curve), _speed_step(curve)
@@ -193,26 +193,26 @@ class CurvesPage(Adw.Bin):
             c.append(self._sensor_picker(curve))
         elif kind == "mix":
             keys = [k for k, _ in CURVE_MIX]
-            c.append(ui.labeled("Funktion", ui.dropdown([n for _, n in CURVE_MIX],
+            c.append(ui.labeled("Function", ui.dropdown([n for _, n in CURVE_MIX],
                                                         keys.index(curve["function"]) if curve["function"] in keys else 0,
                                                         lambda i: setter("function")(keys[i]))))
             choices = [(o["id"], o["name"]) for o in win.config["curves"] if o["id"] != curve["id"]]
             ui.picker_list(c, win, list(curve["curves"]), choices, lambda v: setter("curves", {"curves"})(v),
-                           "Keine Kurven gewählt – Lüfter laufen auf 100 %")
+                           "No curves selected – fans run at 100 %")
         elif kind == "flat":
-            c.append(ui.labeled(_speed_caption(curve, "Drehzahl"), ui.spin(curve["value"], 0, top, step, setter("value"))))
+            c.append(ui.labeled(_speed_caption(curve, "Speed"), ui.spin(curve["value"], 0, top, step, setter("value"))))
         elif kind == "sync":
             pwms = list((win.status or {}).get("pwms", {}))
             if curve["control"] and curve["control"] not in pwms:
                 pwms.append(curve["control"])
-            c.append(ui.labeled("Steuerung", ui.dropdown(
-                [win.display_name(p) for p in pwms] or ["Keine Steuerungen"],
+            c.append(ui.labeled("Control", ui.dropdown(
+                [win.display_name(p) for p in pwms] or ["No controls"],
                 pwms.index(curve["control"]) if curve["control"] in pwms else 0,
                 lambda i: pwms and setter("control")(pwms[i]))))
             grid = Gtk.Grid(column_spacing=10, row_spacing=8, column_homogeneous=True)
             grid.attach(ui.labeled("Offset %", ui.spin(curve["offset"], -100, 100, 1, setter("offset"), 1)), 0, 0, 1, 1)
             grid.attach(ui.switch_line("Proportional", curve["proportional"], setter("proportional"),
-                                       "Offset als Prozentsatz des Quellwerts"), 1, 0, 1, 1)
+                                       "Offset as a percentage of the source value"), 1, 0, 1, 1)
             c.append(grid)
 
         values = Gtk.Box(spacing=8)
@@ -220,7 +220,7 @@ class CurvesPage(Adw.Bin):
         temp = Gtk.Label(css_classes=["fc-caption", "numeric"], xalign=0, hexpand=True, valign=Gtk.Align.CENTER)
         values.append(out)
         values.append(temp)
-        edit = Gtk.Button(label="Bearbeiten", css_classes=["flat"], valign=Gtk.Align.CENTER)
+        edit = Gtk.Button(label="Edit", css_classes=["flat"], valign=Gtk.Align.CENTER)
         edit.connect("clicked", lambda *_: self.open_editor(curve))
         values.append(edit)
         c.append(values)
@@ -232,7 +232,7 @@ class CurvesPage(Adw.Bin):
             click = Gtk.GestureClick()
             click.connect("released", lambda *_: self.open_editor(curve))
             graph.add_controller(click)
-            graph.set_tooltip_text("Klicken zum Bearbeiten")
+            graph.set_tooltip_text("Click to edit")
             graph.set_cursor(Gdk.Cursor.new_from_name("pointer"))
             c.append(graph)
         elif kind == "linear":
@@ -250,8 +250,8 @@ class CurvesPage(Adw.Bin):
                 return apply
             fields = [(ui.tlabel("Min. Temp."), "temp_min", True, (0, 0)),
                       (ui.tlabel("Max. Temp."), "temp_max", True, (1, 0)),
-                      (_speed_caption(curve, "Min. Drehzahl"), "speed_min", False, (0, 1)),
-                      (_speed_caption(curve, "Max. Drehzahl"), "speed_max", False, (1, 1))]
+                      (_speed_caption(curve, "Min. speed"), "speed_min", False, (0, 1)),
+                      (_speed_caption(curve, "Max. speed"), "speed_max", False, (1, 1))]
             for i, (text, key, is_temp, idx) in enumerate(fields):
                 widget = (ui.temp_spin(curve[key], -20, 150, lin(key, idx)) if is_temp
                           else ui.spin(curve[key], 0, top, step, lin(key, idx)))
@@ -260,34 +260,34 @@ class CurvesPage(Adw.Bin):
         elif kind in ("trigger", "auto"):
             grid = Gtk.Grid(column_spacing=10, row_spacing=8, column_homogeneous=True)
             speed_keys = ("idle_speed", "load_speed") if kind == "trigger" else ("min_speed", "max_speed")
-            speed_names = ("Leerlauf", "Last") if kind == "trigger" else ("Min.", "Max.")
-            fields = [(ui.tlabel("Leerlauf"), "idle_temp", True),
+            speed_names = ("Idle", "Load") if kind == "trigger" else ("Min.", "Max.")
+            fields = [(ui.tlabel("Idle"), "idle_temp", True),
                       (_speed_caption(curve, speed_names[0]), speed_keys[0], False),
-                      (ui.tlabel("Last" if kind == "trigger" else "Ziel (Last)"), "load_temp", True),
+                      (ui.tlabel("Load" if kind == "trigger" else "Target (load)"), "load_temp", True),
                       (_speed_caption(curve, speed_names[1]), speed_keys[1], False)]
             for i, (text, key, is_temp) in enumerate(fields):
                 widget = (ui.temp_spin(curve[key], -20, 150, setter(key)) if is_temp
                           else ui.spin(curve[key], 0, top, step, setter(key)))
                 grid.attach(ui.labeled(text, widget), i % 2, i // 2, 1, 1)
             if kind == "auto":
-                grid.attach(ui.labeled(_speed_caption(curve, "Schritt") + "/s",
+                grid.attach(ui.labeled(_speed_caption(curve, "Step") + "/s",
                                        ui.spin(curve["step"], 0.1, 100 if not rpm else 2000, 0.5, setter("step"), 1)),
                             0, 2, 1, 1)
-                grid.attach(ui.labeled(ui.tlabel("Totband"),
+                grid.attach(ui.labeled(ui.tlabel("Deadband"),
                                        ui.temp_spin(curve["deadband"], 0, 20, setter("deadband"), delta=True, digits=1)),
                             1, 2, 1, 1)
             c.append(grid)
 
         if kind in ("graph", "linear"):
-            c.append(ui.caption("Hysterese  " + hysteresis_summary(curve)))
+            c.append(ui.caption("Hysteresis  " + hysteresis_summary(curve)))
         elif kind == "trigger":
-            c.append(ui.caption(f"Reaktionszeit ↑ {curve['response_up']:g} s  ↓ {curve['response_down']:g} s"))
+            c.append(ui.caption(f"Response time ↑ {curve['response_up']:g} s  ↓ {curve['response_down']:g} s"))
         if rpm:
-            c.append(ui.caption("RPM-Modus – nur für kalibrierte Lüfter"))
+            c.append(ui.caption("RPM mode – calibrated fans only"))
 
         users = [win.display_name(x["id"]) for x in win.config["controls"]
                  if x["curve"] == curve["id"] and x["mode"] == "curve"]
-        c.append(ui.caption("Verwendet von: " + (", ".join(users) if users else "–")))
+        c.append(ui.caption("Used by: " + (", ".join(users) if users else "–")))
         self.live[curve["id"]] = (out, temp, graph, curve)
         return c
 
@@ -296,15 +296,15 @@ class CurvesPage(Adw.Bin):
         temps = win.status["temps"] if win.status else {}
         if len(curve["sensors"]) > 1:
             mix = dict(SENSOR_MIX).get(curve["sensor_mix"], curve["sensor_mix"])
-            return ui.labeled("Temperaturquelle",
-                              Gtk.Label(label=f"{len(curve['sensors'])} Sensoren ({mix}) – über „Bearbeiten“ ändern",
+            return ui.labeled("Temperature source",
+                              Gtk.Label(label=f"{len(curve['sensors'])} sensors ({mix}) – change via “Edit”",
                                         xalign=0, wrap=True, max_width_chars=30))
         ids = list(temps)
         missing = [s for s in curve["sensors"] if s not in temps]
         labels = [win.display_name(s) for s in ids] + [f"{s} (fehlt)" for s in missing]
         ids += missing
         if not curve["sensors"]:
-            ids, labels = [None] + ids, ["Sensor wählen …"] + labels
+            ids, labels = [None] + ids, ["Choose sensor …"] + labels
         current = curve["sensors"][0] if curve["sensors"] else None
 
         def pick(i):
@@ -312,8 +312,8 @@ class CurvesPage(Adw.Bin):
                 curve["sensors"] = [ids[i]]
                 win.config_changed(rebuild={"curves"} if current is None else None)
         dd = ui.dropdown(labels, ids.index(current) if current in ids else 0, pick)
-        dd.set_tooltip_text("Mehrere Sensoren kombinieren: „Bearbeiten“")
-        return ui.labeled("Temperaturquelle", dd)
+        dd.set_tooltip_text("Combine several sensors: “Edit”")
+        return ui.labeled("Temperature source", dd)
 
     def update_live(self):
         st = self.win.status
@@ -321,8 +321,8 @@ class CurvesPage(Adw.Bin):
             return
         for cid, (out, temp, graph, curve) in self.live.items():
             info = st["curves"].get(cid) or {}
-            out.set_label("100 % (Sicherheit)" if info.get("failsafe") else _speed_fmt(curve, info.get("output")))
-            out.set_tooltip_text("Sensor fehlt oder Quelle nicht verfügbar – Lüfter laufen auf voller Drehzahl"
+            out.set_label("100 % (failsafe)" if info.get("failsafe") else _speed_fmt(curve, info.get("output")))
+            out.set_tooltip_text("Sensor missing or source unavailable – fans run at full speed"
                                  if info.get("failsafe") else None)
             temp.set_label(fmt_temp(info["temp"]) if info.get("temp") is not None else "")
             if graph:
@@ -332,7 +332,7 @@ class CurvesPage(Adw.Bin):
 
 
 class CurveEditorDialog(Adw.Dialog):
-    """Full editor for one curve. Changes apply live; „Abbrechen“ restores the state from before opening."""
+    """Full editor for one curve. Changes apply live; “Cancel” restores the state from before opening."""
 
     def __init__(self, win, curve, page):
         super().__init__(title=curve["name"], content_width=780, content_height=780)
@@ -342,9 +342,9 @@ class CurveEditorDialog(Adw.Dialog):
         self.points_list = None
         self.connect("closed", self._on_closed)
         header = Adw.HeaderBar(show_end_title_buttons=False, show_start_title_buttons=False)
-        cancel = Gtk.Button(label="Abbrechen")
+        cancel = Gtk.Button(label="Cancel")
         cancel.connect("clicked", lambda *_: self._cancel())
-        done = Gtk.Button(label="Fertig", css_classes=["suggested-action"])
+        done = Gtk.Button(label="Done", css_classes=["suggested-action"])
         done.connect("clicked", lambda *_: self.close())
         header.pack_start(cancel)
         header.pack_end(done)
@@ -381,7 +381,7 @@ class CurveEditorDialog(Adw.Dialog):
             return apply
 
         general = Adw.PreferencesGroup(title=TYPE_NAMES[kind], description=TYPE_HELP[kind])
-        delete = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Kurve löschen",
+        delete = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Delete curve",
                             valign=Gtk.Align.CENTER, css_classes=["flat", "destructive-action"])
         delete.connect("clicked", lambda *_: self.page.delete(curve, after=self.close))
         general.set_header_suffix(delete)
@@ -407,22 +407,22 @@ class CurveEditorDialog(Adw.Dialog):
                         p[1] = round(min(cfgmod.MAX_RPM if new == "rpm" else 100, p[1] * factor), 1)
                 changed()
                 GLib.idle_add(lambda: (self._rebuild(), False)[1])
-            general.add(combo_row("Einheit", ["Prozent", "Drehzahl (RPM)"], 1 if rpm else 0, set_unit,
-                                  subtitle="RPM-Kurven brauchen kalibrierte Lüfter"))
-        live_row = Adw.ActionRow(title="Aktuell")
+            general.add(combo_row("Unit", ["Percent", "Speed (RPM)"], 1 if rpm else 0, set_unit,
+                                  subtitle="RPM curves need calibrated fans"))
+        live_row = Adw.ActionRow(title="Current")
         self.live_label = value_label()
         live_row.add_suffix(self.live_label)
         general.add(live_row)
         page.add(general)
 
         if kind == "graph":
-            group = Adw.PreferencesGroup(title="Kurvenpunkte",
-                                         description="Punkte ziehen · Doppelklick fügt einen Punkt hinzu · Rechtsklick entfernt ihn")
+            group = Adw.PreferencesGroup(title="Curve points",
+                                         description="Drag points · double-click adds a point · right-click removes it")
             self.graph = GraphEditor(curve["points"], self._graph_changed, temp_range=curve["temp_axis"], rpm=rpm)
             group.add(Gtk.Frame(child=self.graph, css_classes=["card"]))
             page.add(group)
             page.add(self._points_group())
-            axis = Adw.PreferencesGroup(title="Temperaturbereich der Achse")
+            axis = Adw.PreferencesGroup(title="Temperature range of the axis")
 
             def set_axis(index):
                 def apply(value):
@@ -433,12 +433,12 @@ class CurveEditorDialog(Adw.Dialog):
                         self.graph.set_range(new)
                         changed()
                 return apply
-            axis.add(temp_spin_row("Von", curve["temp_axis"][0], -50, 140, set_axis(0)))
-            axis.add(temp_spin_row("Bis", curve["temp_axis"][1], -40, 150, set_axis(1)))
+            axis.add(temp_spin_row("From", curve["temp_axis"][0], -50, 140, set_axis(0)))
+            axis.add(temp_spin_row("To", curve["temp_axis"][1], -40, 150, set_axis(1)))
             page.add(axis)
         elif kind == "linear":
             preview = [[curve["temp_min"], curve["speed_min"]], [curve["temp_max"], curve["speed_max"]]]
-            group = Adw.PreferencesGroup(title="Werte")
+            group = Adw.PreferencesGroup(title="Values")
             self.graph = GraphEditor(preview, editable=False, rpm=rpm)
 
             def lin(key, idx):
@@ -448,72 +448,72 @@ class CurveEditorDialog(Adw.Dialog):
                     self.graph.refresh()
                     changed()
                 return apply
-            group.add(temp_spin_row("Temperatur min", curve["temp_min"], -20, 150, lin("temp_min", (0, 0))))
-            group.add(spin_row(_speed_caption(curve, "Drehzahl bei min"), curve["speed_min"], 0, top, step, lin("speed_min", (0, 1))))
-            group.add(temp_spin_row("Temperatur max", curve["temp_max"], -20, 150, lin("temp_max", (1, 0))))
-            group.add(spin_row(_speed_caption(curve, "Drehzahl bei max"), curve["speed_max"], 0, top, step, lin("speed_max", (1, 1))))
+            group.add(temp_spin_row("Temperature min", curve["temp_min"], -20, 150, lin("temp_min", (0, 0))))
+            group.add(spin_row(_speed_caption(curve, "Speed at min"), curve["speed_min"], 0, top, step, lin("speed_min", (0, 1))))
+            group.add(temp_spin_row("Temperature max", curve["temp_max"], -20, 150, lin("temp_max", (1, 0))))
+            group.add(spin_row(_speed_caption(curve, "Speed at max"), curve["speed_max"], 0, top, step, lin("speed_max", (1, 1))))
             group.add(Gtk.Frame(child=self.graph, css_classes=["card"], margin_top=12))
             page.add(group)
         elif kind == "flat":
-            group = Adw.PreferencesGroup(title="Wert")
-            group.add(spin_row(_speed_caption(curve, "Drehzahl"), curve["value"], 0, top, step, setter("value")))
+            group = Adw.PreferencesGroup(title="Value")
+            group.add(spin_row(_speed_caption(curve, "Speed"), curve["value"], 0, top, step, setter("value")))
             page.add(group)
         elif kind == "mix":
             page.add(self._mix_group())
         elif kind == "sync":
-            group = Adw.PreferencesGroup(title="Quelle")
+            group = Adw.PreferencesGroup(title="Source")
             pwms = list((win.status or {}).get("pwms", {}))
             if curve["control"] and curve["control"] not in pwms:
                 pwms.append(curve["control"])
-            group.add(combo_row("Steuerung", [win.display_name(p) for p in pwms] or ["–"],
+            group.add(combo_row("Control", [win.display_name(p) for p in pwms] or ["–"],
                                 pwms.index(curve["control"]) if curve["control"] in pwms else 0,
                                 lambda i: pwms and setter("control")(pwms[i])))
             group.add(spin_row("Offset", curve["offset"], -100, 100, 0.5, setter("offset"), digits=1,
-                               subtitle="Prozentpunkte, oder Prozent des Quellwerts bei „Proportional“"))
+                               subtitle="Percentage points, or percent of the source value with “Proportional”"))
             group.add(switch_row("Proportional", curve["proportional"], setter("proportional")))
             page.add(group)
         elif kind == "trigger":
-            group = Adw.PreferencesGroup(title="Schwellwerte")
-            group.add(temp_spin_row("Leerlauf-Temperatur", curve["idle_temp"], -20, 150, setter("idle_temp"),
-                                    subtitle="Unterhalb davon: Leerlauf-Drehzahl"))
-            group.add(spin_row(_speed_caption(curve, "Leerlauf-Drehzahl"), curve["idle_speed"], 0, top, step, setter("idle_speed")))
-            group.add(temp_spin_row("Last-Temperatur", curve["load_temp"], -20, 150, setter("load_temp"),
-                                    subtitle="Ab hier: Last-Drehzahl"))
-            group.add(spin_row(_speed_caption(curve, "Last-Drehzahl"), curve["load_speed"], 0, top, step, setter("load_speed")))
-            group.add(spin_row("Reaktionszeit hoch s", curve["response_up"], 0, 300, 0.5, setter("response_up"),
-                               digits=1, subtitle="So lange muss die Last-Temperatur gehalten werden"))
-            group.add(spin_row("Reaktionszeit runter s", curve["response_down"], 0, 300, 0.5, setter("response_down"),
-                               digits=1, subtitle="So lange muss die Leerlauf-Temperatur unterschritten sein"))
+            group = Adw.PreferencesGroup(title="Thresholds")
+            group.add(temp_spin_row("Idle temperature", curve["idle_temp"], -20, 150, setter("idle_temp"),
+                                    subtitle="Below this: idle speed"))
+            group.add(spin_row(_speed_caption(curve, "Idle speed"), curve["idle_speed"], 0, top, step, setter("idle_speed")))
+            group.add(temp_spin_row("Load temperature", curve["load_temp"], -20, 150, setter("load_temp"),
+                                    subtitle="From here: load speed"))
+            group.add(spin_row(_speed_caption(curve, "Load speed"), curve["load_speed"], 0, top, step, setter("load_speed")))
+            group.add(spin_row("Response time up s", curve["response_up"], 0, 300, 0.5, setter("response_up"),
+                               digits=1, subtitle="How long the load temperature must be held"))
+            group.add(spin_row("Response time down s", curve["response_down"], 0, 300, 0.5, setter("response_down"),
+                               digits=1, subtitle="How long the temperature must stay below the idle temperature"))
             page.add(group)
         elif kind == "auto":
-            group = Adw.PreferencesGroup(title="Regelung")
-            group.add(temp_spin_row("Leerlauf-Temperatur", curve["idle_temp"], -20, 150, setter("idle_temp"),
-                                    subtitle="Darunter: Min-Drehzahl"))
-            group.add(temp_spin_row("Last-Temperatur (Ziel)", curve["load_temp"], -20, 150, setter("load_temp"),
-                                    subtitle="Diese Temperatur soll gehalten werden"))
-            group.add(spin_row(_speed_caption(curve, "Min. Drehzahl"), curve["min_speed"], 0, top, step, setter("min_speed")))
-            group.add(spin_row(_speed_caption(curve, "Max. Drehzahl"), curve["max_speed"], 0, top, step, setter("max_speed")))
-            group.add(spin_row(_speed_caption(curve, "Schritt") + "/s", curve["step"], 0.1, 100 if not rpm else 2000, 0.5,
-                               setter("step"), digits=1, subtitle="So schnell wird nachgeregelt"))
-            group.add(temp_spin_row("Totband", curve["deadband"], 0, 20, setter("deadband"), delta=True, digits=1,
-                                    subtitle="Innerhalb ± Totband um das Ziel bleibt die Drehzahl gleich"))
-            group.add(spin_row("Reaktionszeit s", curve["response_time"], 0, 300, 0.5, setter("response_time"), digits=1))
+            group = Adw.PreferencesGroup(title="Regulation")
+            group.add(temp_spin_row("Idle temperature", curve["idle_temp"], -20, 150, setter("idle_temp"),
+                                    subtitle="Below this: min speed"))
+            group.add(temp_spin_row("Load temperature (target)", curve["load_temp"], -20, 150, setter("load_temp"),
+                                    subtitle="This temperature is held"))
+            group.add(spin_row(_speed_caption(curve, "Min. speed"), curve["min_speed"], 0, top, step, setter("min_speed")))
+            group.add(spin_row(_speed_caption(curve, "Max. speed"), curve["max_speed"], 0, top, step, setter("max_speed")))
+            group.add(spin_row(_speed_caption(curve, "Step") + "/s", curve["step"], 0.1, 100 if not rpm else 2000, 0.5,
+                               setter("step"), digits=1, subtitle="How fast the speed is adjusted"))
+            group.add(temp_spin_row("Deadband", curve["deadband"], 0, 20, setter("deadband"), delta=True, digits=1,
+                                    subtitle="Within ± deadband around the target the speed stays the same"))
+            group.add(spin_row("Response time s", curve["response_time"], 0, 300, 0.5, setter("response_time"), digits=1))
             page.add(group)
 
         if kind in TEMP_CURVES:
             page.add(self._sensor_group())
 
         if kind in ("graph", "linear"):
-            group = Adw.PreferencesGroup(title="Hysterese", description=HYST_HELP)
-            group.add(temp_spin_row("Hysterese ↑", curve["hysteresis_up"], 0, 50, setter("hysteresis_up"),
-                                    delta=True, digits=1, subtitle="Bei steigender Temperatur"))
-            group.add(spin_row("Reaktionszeit ↑ s", curve["response_up"], 0, 300, 0.5, setter("response_up"), digits=1))
-            group.add(temp_spin_row("Hysterese ↓", curve["hysteresis_down"], 0, 50, setter("hysteresis_down"),
-                                    delta=True, digits=1, subtitle="Bei fallender Temperatur"))
-            group.add(spin_row("Reaktionszeit ↓ s", curve["response_down"], 0, 300, 0.5, setter("response_down"), digits=1))
-            group.add(switch_row("Hysterese an den Grenzen ignorieren", curve["ignore_hysteresis_at_limits"],
+            group = Adw.PreferencesGroup(title="Hysteresis", description=HYST_HELP)
+            group.add(temp_spin_row("Hysteresis ↑", curve["hysteresis_up"], 0, 50, setter("hysteresis_up"),
+                                    delta=True, digits=1, subtitle="For rising temperature"))
+            group.add(spin_row("Response time ↑ s", curve["response_up"], 0, 300, 0.5, setter("response_up"), digits=1))
+            group.add(temp_spin_row("Hysteresis ↓", curve["hysteresis_down"], 0, 50, setter("hysteresis_down"),
+                                    delta=True, digits=1, subtitle="For falling temperature"))
+            group.add(spin_row("Response time ↓ s", curve["response_down"], 0, 300, 0.5, setter("response_down"), digits=1))
+            group.add(switch_row("Ignore hysteresis at the limits", curve["ignore_hysteresis_at_limits"],
                                  setter("ignore_hysteresis_at_limits"),
-                                 subtitle="Minimum und Maximum werden sofort erreicht"))
+                                 subtitle="Minimum and maximum are reached immediately"))
             page.add(group)
         self.update_live()
         return page
@@ -524,8 +524,8 @@ class CurveEditorDialog(Adw.Dialog):
         self._fill_points()
 
     def _points_group(self):
-        group = Adw.PreferencesGroup(title="Punkte als Zahlen")
-        add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Punkt hinzufügen",
+        group = Adw.PreferencesGroup(title="Points as numbers")
+        add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Add point",
                          css_classes=["flat"], valign=Gtk.Align.CENTER)
         add.connect("clicked", lambda *_: self._add_point())
         group.set_header_suffix(add)
@@ -570,7 +570,7 @@ class CurveEditorDialog(Adw.Dialog):
             box.append(Gtk.Label(label=temp_unit()))
             box.append(ui.spin(point[1], 0, top, step, set_speed))
             box.append(Gtk.Label(label="RPM" if curve.get("unit") == "rpm" else "%"))
-            remove = Gtk.Button(icon_name="user-trash-symbolic", css_classes=["flat"], tooltip_text="Punkt entfernen",
+            remove = Gtk.Button(icon_name="user-trash-symbolic", css_classes=["flat"], tooltip_text="Remove point",
                                 sensitive=len(curve["points"]) > 2)
             remove.connect("clicked", lambda _b, p=point: self._remove_point(p))
             box.append(remove)
@@ -592,14 +592,14 @@ class CurveEditorDialog(Adw.Dialog):
     # --- groups ---------------------------------------------------------
     def _sensor_group(self):
         win, curve = self.win, self.curve
-        group = Adw.PreferencesGroup(title="Temperaturquelle")
+        group = Adw.PreferencesGroup(title="Temperature source")
         temps = win.status["temps"] if win.status else {}
-        expander = Adw.ExpanderRow(title="Sensoren", expanded=not curve["sensors"])
+        expander = Adw.ExpanderRow(title="Sensors", expanded=not curve["sensors"])
         known = list(temps) + [s for s in curve["sensors"] if s not in temps]
 
         def summary():
             names = [win.display_name(s) for s in curve["sensors"]]
-            expander.set_subtitle(", ".join(names) if names else "Kein Sensor gewählt – Lüfter laufen auf 100 %")
+            expander.set_subtitle(", ".join(names) if names else "No sensor selected – fans run at 100 %")
 
         def toggle(sid, active):
             if active and sid not in curve["sensors"]:
@@ -616,23 +616,23 @@ class CurveEditorDialog(Adw.Dialog):
             row.add_prefix(check)
             row.set_activatable_widget(check)
             value = temps.get(sid, {}).get("value") if sid in temps else None
-            row.add_suffix(Gtk.Label(label=fmt_temp(value) if sid in temps else "nicht vorhanden",
+            row.add_suffix(Gtk.Label(label=fmt_temp(value) if sid in temps else "not present",
                                      css_classes=["numeric", "dim-label"]))
             expander.add_row(row)
         summary()
         group.add(expander)
         keys = [k for k, _ in SENSOR_MIX]
-        group.add(combo_row("Bei mehreren Sensoren", [n for _, n in SENSOR_MIX],
+        group.add(combo_row("With several sensors", [n for _, n in SENSOR_MIX],
                             keys.index(curve["sensor_mix"]) if curve["sensor_mix"] in keys else 0,
                             lambda i: (curve.__setitem__("sensor_mix", keys[i]), win.config_changed())))
         return group
 
     def _mix_group(self):
         win, curve = self.win, self.curve
-        group = Adw.PreferencesGroup(title="Kurven kombinieren",
-                                     description="Bei „Subtrahieren“ zählt die Reihenfolge: erste Kurve minus alle weiteren.")
+        group = Adw.PreferencesGroup(title="Combine curves",
+                                     description="With “Subtract” the order matters: first curve minus all others.")
         keys = [k for k, _ in CURVE_MIX]
-        group.add(combo_row("Funktion", [n for _, n in CURVE_MIX],
+        group.add(combo_row("Function", [n for _, n in CURVE_MIX],
                             keys.index(curve["function"]) if curve["function"] in keys else 0,
                             lambda i: (curve.__setitem__("function", keys[i]), win.config_changed())))
 
@@ -645,7 +645,7 @@ class CurveEditorDialog(Adw.Dialog):
 
         others = [c for c in win.config["curves"] if c["id"] != curve["id"]]
         if not others:
-            group.add(Adw.ActionRow(title="Lege zuerst weitere Kurven an."))
+            group.add(Adw.ActionRow(title="Add more curves first."))
         for other in others:
             row = Adw.ActionRow(title=other["name"], subtitle=TYPE_NAMES[other["type"]])
             check = Gtk.CheckButton(active=other["id"] in curve["curves"], valign=Gtk.Align.CENTER)
@@ -661,12 +661,12 @@ class CurveEditorDialog(Adw.Dialog):
             return
         info = st["curves"].get(self.curve["id"])
         if not info:
-            self.live_label.set_label("noch nicht berechnet")
+            self.live_label.set_label("not calculated yet")
             if self.graph:
                 self.graph.set_live(None, None)
             return
         temp, out = info.get("temp"), info.get("output")
-        out_text = "100 % (Sicherheit)" if info.get("failsafe") else _speed_fmt(self.curve, out)
+        out_text = "100 % (failsafe)" if info.get("failsafe") else _speed_fmt(self.curve, out)
         self.live_label.set_label(out_text if temp is None else f"{fmt_temp(temp)}  →  {out_text}")
         if self.graph:
             self.graph.set_live(temp, out)

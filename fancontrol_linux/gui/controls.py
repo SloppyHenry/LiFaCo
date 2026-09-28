@@ -11,27 +11,27 @@ from . import common as ui  # noqa: E402
 from .util import fmt_pct, fmt_rpm  # noqa: E402
 
 CONTROLS_HELP = (
-    "Jede Kachel ist ein Lüfterausgang (Mainboard, AMD- oder NVIDIA-Grafikkarte).\n\n"
-    "• Schalter: Lüfter von diesem Programm steuern lassen (aus = BIOS/Treiber).\n"
-    "• Kurve: bestimmt die Drehzahl. „Manuell“ setzt einen festen Wert per Regler.\n"
-    "• Pfeil: Feinabstimmung\n"
-    "   – Schritt hoch/runter: maximale Änderung pro Sekunde\n"
-    "   – Anlauf %: kurzer Schub, wenn der Lüfter aus dem Stillstand startet\n"
-    "   – Stop %: liefert die Kurve weniger, wird der Lüfter ganz abgeschaltet (0 = nie)\n"
-    "   – Minimum/Maximum %: harte Grenzen, Offset: wird zur Kurve addiert\n"
-    "   – Erzwingen: übernimmt die Steuerung sofort wieder, wenn ein anderes Programm eingreift\n"
-    "• „?“ neben dem Prozentwert: ein anderes Programm oder das BIOS verstellt den Lüfter.\n"
-    "• ⋮ → Kalibrieren misst Anlauf-/Stopp-Punkt und die Drehzahlkurve (nötig für RPM-Kurven).\n"
-    "• ⋮ → Identifizieren dreht den Lüfter 10 s auf 100 %, damit du ihn im Gehäuse findest."
+    "Each card is a fan output (mainboard, AMD or NVIDIA graphics card).\n\n"
+    "• Switch: let this program control the fan (off = BIOS/driver).\n"
+    "• Curve: determines the speed. “Manual” sets a fixed value with a slider.\n"
+    "• Arrow: fine tuning\n"
+    "   – Step up/down: maximum change per second\n"
+    "   – Start %: short boost when the fan starts from standstill\n"
+    "   – Stop %: if the curve asks for less, the fan is switched off (0 = never)\n"
+    "   – Minimum/Maximum %: hard limits, Offset: added to the curve\n"
+    "   – Force: take control back immediately when another program interferes\n"
+    "• “?” next to the percentage: another program or the BIOS is changing the fan.\n"
+    "• ⋮ → Calibrate measures start/stop point and the speed curve (needed for RPM curves).\n"
+    "• ⋮ → Identify spins the fan at 100 % for 10 s so you can find it in the case."
 )
 NO_FANS_HINT = (
-    "Es wurden keine steuerbaren Lüfter gefunden.\n\n"
-    "• Führe <tt>sudo sensors-detect</tt> aus (Paket lm-sensors) und lade die vorgeschlagenen "
-    "Kernelmodule, z. B. <tt>nct6775</tt> oder <tt>it87</tt>.\n"
-    "• Bei manchen Mainboards ist der Kernelparameter <tt>acpi_enforce_resources=lax</tt> nötig.\n"
+    "No controllable fans were found.\n\n"
+    "• Run <tt>sudo sensors-detect</tt> (package lm-sensors) and load the suggested "
+    "kernel modules, e.g. <tt>nct6775</tt> or <tt>it87</tt> – the installer does this for you.\n"
+    "• Some mainboards need the kernel parameter <tt>acpi_enforce_resources=lax</tt>.\n"
     "• ThinkPads: <tt>options thinkpad_acpi fan_control=1</tt>.\n"
-    "• Dell: Modul <tt>dell-smm-hwmon</tt>.\n"
-    "• AMD-Grafikkarten (<tt>amdgpu</tt>) und NVIDIA-Karten (proprietärer Treiber) werden automatisch erkannt."
+    "• Dell: module <tt>dell-smm-hwmon</tt>.\n"
+    "• AMD graphics cards (<tt>amdgpu</tt>) and NVIDIA cards (proprietary driver) are detected automatically."
 )
 TUNING_KEYS = ("min_percent", "max_percent", "start_percent", "stop_percent", "offset", "step_up",
                "step_down", "avoid", "force_apply")
@@ -40,11 +40,11 @@ TUNING_KEYS = ("min_percent", "max_percent", "start_percent", "stop_percent", "o
 def calibration_text(ctl):
     cal = (ctl or {}).get("calibration")
     if not cal:
-        return "Nicht kalibriert"
+        return "Not calibrated"
     rpms = [r for _p, r in cal["rpm_curve"] if r > 0]
     if not rpms:
-        return "Kalibriert (keine Drehzahl gemessen)"
-    return f"Kalibriert: {min(rpms)}–{max(rpms)} RPM"
+        return "Calibrated (no speed measured)"
+    return f"Calibrated: {min(rpms)}–{max(rpms)} RPM"
 
 
 class ControlsPage(Adw.Bin):
@@ -58,14 +58,14 @@ class ControlsPage(Adw.Bin):
         win = self.win
         self.live = {}
         if win.status is None or win.config is None:
-            self.set_child(ui.status_page("Verbinde mit Dienst …", "", "network-transmit-receive-symbolic"))
+            self.set_child(ui.status_page("Connecting to the service …", "", "network-transmit-receive-symbolic"))
             return
         pwms = win.status["pwms"]
         if not pwms:
-            self.set_child(ui.status_page("Keine steuerbaren Lüfter gefunden", NO_FANS_HINT,
-                                          "dialog-warning-symbolic", ("Erneut suchen", win.rescan)))
+            self.set_child(ui.status_page("No controllable fans found", NO_FANS_HINT,
+                                          "dialog-warning-symbolic", ("Search again", win.rescan)))
             return
-        page, flow = ui.grid_page("Steuerungen", CONTROLS_HELP)
+        page, flow = ui.grid_page("Controls", CONTROLS_HELP)
         for pid, info in pwms.items():
             if win.is_visible_item(pid):
                 flow.append(self._card(pid, info))
@@ -81,8 +81,8 @@ class ControlsPage(Adw.Bin):
         top.append(Gtk.Label(label=ctl["name"] or ctl["id"], hexpand=True, xalign=0, ellipsize=3,
                              css_classes=["heading"]))
         c.append(top)
-        c.append(ui.caption("Hardware nicht gefunden"))
-        remove = Gtk.Button(label="Aus Konfiguration entfernen", css_classes=["flat"])
+        c.append(ui.caption("Hardware not found"))
+        remove = Gtk.Button(label="Remove from configuration", css_classes=["flat"])
         remove.connect("clicked", lambda *_: self._remove(ctl["id"]))
         c.append(remove)
         return c
@@ -112,24 +112,24 @@ class ControlsPage(Adw.Bin):
             win.config_changed(rebuild={"controls"})
 
         c = ui.card(hidden=pid in win.config["hidden"])
-        menu = [("Kalibrieren …", lambda: win.calibration_clicked(pid)),
-                ("Identifizieren (10 s auf 100 %)", lambda: win.identify(pid)),
+        menu = [("Calibrate …", lambda: win.calibration_clicked(pid)),
+                ("Identify (100 % for 10 s)", lambda: win.identify(pid)),
                 ui.hidden_menu_item(win, pid),
-                ("Feinabstimmung zurücksetzen", reset)]
+                ("Reset fine tuning", reset)]
         if ctl.get("calibration"):
-            menu.append(("Kalibrierung löschen", clear_calibration))
+            menu.append(("Delete calibration", clear_calibration))
         ui.card_header(c, "fc-gauge-symbolic",
                        ui.name_entry(win.display_name(pid), info["label"],
                                      setter("name", rebuild={"sensors", "curves"})), menu)
 
         row = Gtk.Box(spacing=12)
         switch = Gtk.Switch(active=ctl["enabled"], valign=Gtk.Align.END,
-                            tooltip_text="Lüfter steuern (aus = BIOS/Treiber)")
+                            tooltip_text="Control this fan (off = BIOS/driver)")
         switch.connect("notify::active", lambda s, _p: setter("enabled")(s.get_active()))
         row.append(switch)
         curves = win.config["curves"]
         choices = [("none", None), ("manual", None)] + [("curve", cv["id"]) for cv in curves]
-        labels = ["Keine Kurve", "Manuell"] + [cv["name"] for cv in curves]
+        labels = ["No curve", "Manual"] + [cv["name"] for cv in curves]
         if ctl["mode"] == "manual":
             selected = 1
         else:
@@ -142,7 +142,7 @@ class ControlsPage(Adw.Bin):
             if kind != "manual":
                 target["curve"] = cid
             win.config_changed(rebuild={"controls", "curves"})
-        row.append(ui.labeled("Kurve", ui.dropdown(labels, selected, choose)))
+        row.append(ui.labeled("Curve", ui.dropdown(labels, selected, choose)))
         c.append(row)
 
         if ctl["mode"] == "manual":
@@ -151,14 +151,14 @@ class ControlsPage(Adw.Bin):
             scale.set_draw_value(True)
             scale.set_format_value_func(lambda _s, v: f"{v:.0f} %")
             scale.connect("value-changed", lambda s: setter("manual_percent")(round(s.get_value())))
-            c.append(ui.labeled("Manuelle Drehzahl", scale))
+            c.append(ui.labeled("Manual speed", scale))
 
         values = Gtk.Box(spacing=8)
         pct = Gtk.Label(css_classes=["fc-big", "numeric"], xalign=0, hexpand=True)
         rpm = Gtk.Label(css_classes=["fc-big", "numeric"], xalign=1, tooltip_text=calibration_text(ctl))
         toggle = Gtk.ToggleButton(icon_name="pan-down-symbolic", active=pid in self.expanded,
                                   css_classes=["flat", "circular"], valign=Gtk.Align.CENTER,
-                                  tooltip_text="Feinabstimmung")
+                                  tooltip_text="Fine tuning")
         values.append(pct)
         values.append(rpm)
         values.append(toggle)
@@ -170,9 +170,9 @@ class ControlsPage(Adw.Bin):
 
         grid = Gtk.Grid(column_spacing=10, row_spacing=8, column_homogeneous=True)
         fields = [
-            ("Schritt hoch %/s", "step_up", 0, 100, 0),
-            ("Schritt runter %/s", "step_down", 0, 100, 0),
-            ("Anlauf %", "start_percent", 0, 100, 0),
+            ("Step up %/s", "step_up", 0, 100, 0),
+            ("Step down %/s", "step_down", 0, 100, 0),
+            ("Start %", "start_percent", 0, 100, 0),
             ("Stop %", "stop_percent", 0, 100, 0),
             ("Offset %", "offset", -100, 100, 1),
             ("Minimum %", "min_percent", 0, 100, 0),
@@ -182,21 +182,21 @@ class ControlsPage(Adw.Bin):
             step = 0.5 if digits else 1
             grid.attach(ui.labeled(text, ui.spin(ctl[key], lo, hi, step, setter(key), digits)), i % 2, i // 2, 1, 1)
         rows = len(fields) // 2 + 1
-        grid.attach(ui.switch_line("Erzwingen", ctl["force_apply"], setter("force_apply"),
-                                   "Steuerung sofort zurückholen, wenn ein anderes Programm eingreift"),
+        grid.attach(ui.switch_line("Force", ctl["force_apply"], setter("force_apply"),
+                                   "Take control back immediately when another program interferes"),
                     0, rows, 2, 1)
 
         fans = win.status["fans"]
         fan_ids = [None] + list(fans)
         current_fan = ctl["fan"] or info.get("default_fan")
-        grid.attach(ui.labeled("Drehzahlsensor", ui.dropdown(
-            ["Keiner"] + [win.display_name(f) for f in fans],
+        grid.attach(ui.labeled("Speed sensor", ui.dropdown(
+            ["None"] + [win.display_name(f) for f in fans],
             fan_ids.index(current_fan) if current_fan in fan_ids else 0,
             lambda i: setter("fan")(fan_ids[i]))), 0, rows + 1, 2, 1)
 
         avoid = Gtk.Entry(text=", ".join(f"{a:g}-{b:g}" for a, b in ctl["avoid"]),
-                          placeholder_text="z. B. 40-50, 70-75",
-                          tooltip_text="Bereiche, in denen der Lüfter nie laufen soll (z. B. wegen Brummen)")
+                          placeholder_text="e.g. 40-50, 70-75",
+                          tooltip_text="Ranges the fan should never run in (e.g. because it hums)")
 
         def set_avoid(*_):
             try:
@@ -205,7 +205,7 @@ class ControlsPage(Adw.Bin):
                     a, b = (float(x) for x in part.split("-"))
                     ranges.append([a, b])
             except ValueError:
-                win.toast("Vermeiden: Format 40-50, 70-75")
+                win.toast("Avoid ranges: format 40-50, 70-75")
                 return
             if ranges != win.ensure_control(pid)["avoid"]:
                 setter("avoid")(ranges)
@@ -213,7 +213,7 @@ class ControlsPage(Adw.Bin):
         focus = Gtk.EventControllerFocus()
         focus.connect("leave", set_avoid)
         avoid.add_controller(focus)
-        grid.attach(ui.labeled("Bereiche vermeiden (%)", avoid), 0, rows + 2, 2, 1)
+        grid.attach(ui.labeled("Avoid ranges (%)", avoid), 0, rows + 2, 2, 1)
         grid.attach(ui.caption(calibration_text(ctl)), 0, rows + 3, 2, 1)
 
         revealer = Gtk.Revealer(child=grid, reveal_child=pid in self.expanded)
@@ -244,24 +244,24 @@ class ControlsPage(Adw.Bin):
             if info.get("overridden"):
                 text += " ?"
             pct.set_label(text)
-            pct.set_tooltip_text("Ein anderes Programm oder das BIOS verstellt diesen Lüfter"
+            pct.set_tooltip_text("Another program or the BIOS is changing this fan"
                                  if info.get("overridden") else None)
             rpm.set_label(fmt_rpm(st["fans"].get(fan, {}).get("value")) if fan else "")
             if info.get("error"):
-                message = f"Fehler: {info['error']}"
+                message = f"Error: {info['error']}"
             elif info.get("identifying"):
-                message = "Identifizieren: 100 %"
+                message = "Identify: 100 %"
             elif st.get("safety_active") and info["controlled"]:
-                message = "Sicherheitstemperatur erreicht – 100 %"
+                message = "Safety temperature reached – 100 %"
             elif info["controlled"]:
-                message = f"Gesteuert · Ziel {fmt_pct(info['target'])}"
+                message = f"Controlled · target {fmt_pct(info['target'])}"
                 if info.get("boost"):
-                    message += f" · Anlaufhilfe +{info['boost']:.0f} %"
+                    message += f" · start assist +{info['boost']:.0f} %"
             else:
-                message = "Automatik (BIOS/Treiber)"
+                message = "Automatic (BIOS/driver)"
             running = bool(cal and cal["running"] and cal["control"] == pid)
             progress.set_visible(running)
             if running:
                 progress.set_fraction(cal["progress"])
-                message = f"Kalibrierung läuft … PWM {cal['percent']} %  (⋮ → Kalibrieren bricht ab)"
+                message = f"Calibrating … PWM {cal['percent']} %  (⋮ → Calibrate cancels)"
             state.set_label(message)

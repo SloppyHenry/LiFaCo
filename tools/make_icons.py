@@ -90,7 +90,7 @@ def main():
         with open(os.path.join(OUT, f"{name}-symbolic.svg"), "w") as f:
             f.write('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">'
                     f'<g fill="#2e3436">{body}</g></svg>\n')
-    print(f"{len(ICONS)} Icons nach {os.path.normpath(OUT)} geschrieben")
+    print(f"Wrote {len(ICONS)} icons to {os.path.normpath(OUT)}")
 
 
 if __name__ == "__main__":
