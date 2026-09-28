@@ -1,5 +1,6 @@
 import copy
 import json
+import os
 import subprocess
 import sys
 
@@ -25,6 +26,12 @@ CPU_PATTERNS = ["tctl", "package id", "tdie", "cpu"]
 GPU_PATTERNS = ["nvidia", "amdgpu: edge", "amdgpu: junction", "gpu"]
 GPU_DRIVERS = ("amdgpu", "nouveau", "radeon", "nvidia")
 _UNSET = object()
+SERVICE_FILES = ("/etc/systemd/system/fancontrol-linux.service", "/etc/init.d/fancontrol-linux",
+                 "/etc/sv/fancontrol-linux/run")
+
+
+def _service_missing():
+    return not any(os.path.exists(p) for p in SERVICE_FILES)
 PAGES = (
     ("controls", "Steuerungen", "fc-gauge-symbolic"),
     ("curves", "Kurven", "fc-curve-symbolic"),
@@ -346,8 +353,15 @@ class MainWindow(Adw.ApplicationWindow):
         self.safety_banner.set_revealed(False)
         message = str(error)
         self.banner.set_title(message)
-        self.banner.set_button_label("Dienst starten" if isinstance(error, DaemonUnavailable)
-                                     and "Berechtigung" not in message else None)
+        if not isinstance(error, DaemonUnavailable) or "Berechtigung" in message:
+            label = None
+        elif _service_missing() and os.environ.get("APPIMAGE"):
+            label = "Dienst installieren"
+            message = "Der Hintergrunddienst ist noch nicht eingerichtet."
+            self.banner.set_title(message)
+        else:
+            label = "Dienst starten"
+        self.banner.set_button_label(label)
         self.banner.set_revealed(True)
         if self.tray:
             self.tray.set_main_tooltip("FanControl", "Dienst nicht erreichbar")
@@ -442,11 +456,30 @@ class MainWindow(Adw.ApplicationWindow):
                 self.rail.select_row(row)
 
     def start_service(self):
+        if _service_missing() and os.environ.get("APPIMAGE"):
+            self._install_from_appimage()
+            return
+
         def work():
             res = subprocess.run(["pkexec", "systemctl", "start", SERVICE], capture_output=True, text=True)
             if res.returncode != 0:
                 raise RuntimeError(res.stderr.strip() or "Start fehlgeschlagen")
         run_async(work, lambda _: self.toast("Dienst gestartet"), lambda e: self.toast(f"Dienst: {e}"))
+
+    def _install_from_appimage(self):
+        """Run the AppImage's own installer as root; pkexec shows the password prompt."""
+        def work():
+            cmd = ["pkexec", "/usr/bin/env", "APPIMAGE_EXTRACT_AND_RUN=1", os.environ["APPIMAGE"], "--install", "--yes"]
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode != 0:
+                lines = (res.stderr or res.stdout).strip().splitlines()
+                raise RuntimeError(lines[-1] if lines else "abgebrochen")
+            return res.stdout
+
+        def done(_output):
+            self.toast("Installiert – bitte einmal ab- und wieder anmelden, falls der Zugriff noch verweigert wird")
+        self.toast("Installation läuft … (dauert etwa eine Minute)")
+        run_async(work, done, lambda e: self.toast(f"Installation fehlgeschlagen: {e}"))
 
     def rescan(self):
         run_async(lambda: self.client.call("rescan"), lambda st: (self._on_status((st, None, None)),

@@ -33,7 +33,7 @@ fi
 for b in fancontrol-linux fancontrol-linuxd fancontrol-linuxctl; do
     rm -f "$PREFIX/bin/$b"
 done
-rm -rf "$PREFIX/lib/fancontrol-linux"
+rm -rf "$PREFIX/lib/fancontrol-linux" /opt/fancontrol-linux
 rm -f "$PREFIX/share/applications/io.github.fancontrol_linux.desktop"
 rm -f "$PREFIX/share/icons/hicolor/scalable/apps/io.github.fancontrol_linux.svg"
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$PREFIX/share/icons/hicolor" || true

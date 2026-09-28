@@ -30,11 +30,18 @@ Aufruf: sudo ./install.sh [Optionen]
   --it87-dkms          Aktuellen it87-Treiber (ITE-Chips) per DKMS ohne Rückfrage installieren
   --thinkpad-fan       ThinkPad: Lüftersteuerung (thinkpad_acpi fan_control=1) ohne Rückfrage freischalten
   -h, --help           Diese Hilfe
+
+Aus dem AppImage: sudo ./FanControl-x86_64.AppImage --install [Optionen]
 EOF
 }
 
-for arg in "$@"; do
+APPIMAGE_SRC=""
+OPT=/opt/fancontrol-linux
+while [[ $# -gt 0 ]]; do
+    arg=$1
+    shift
     case "$arg" in
+        --appimage) APPIMAGE_SRC=${1:?--appimage braucht ein Verzeichnis}; shift ;;
         -y|--yes) ASSUME_YES=1 ;;
         --no-deps) INSTALL_DEPS=0 ;;
         --no-hardware) SETUP_HARDWARE=0 ;;
@@ -209,6 +216,13 @@ have_liquidctl() {
 # --- Abhängigkeiten -------------------------------------------------------------
 if [[ $INSTALL_DEPS -eq 1 ]]; then
     step "Pakete installieren"
+    if [[ -n $APPIMAGE_SRC ]]; then
+        # Python, GTK, libadwaita und liquidctl bringt das AppImage mit – nur Systemwerkzeuge installieren.
+        # shellcheck disable=SC2046
+        pm_install $(pkg base | tr ' ' '\n' | grep -v 'python' | xargs) && ok "Systemwerkzeuge" || warn "Systemwerkzeuge unvollständig"
+        install_role sensors "lm-sensors (sensors-detect)" || true
+        install_role polkit "polkit (Dienst aus der Oberfläche starten)" || true
+    else
     install_role base "Python und Systemwerkzeuge" || true
     install_role sensors "lm-sensors (sensors-detect)" || true
     install_role polkit "polkit (Dienst aus der Oberfläche starten)" || true
@@ -217,9 +231,12 @@ if [[ $INSTALL_DEPS -eq 1 ]]; then
     elif [[ -n $(pkg liquidctl) ]]; then install_role liquidctl "liquidctl (AIO-Wasserkühlungen, Smart-Hubs)" || true
     else warn "liquidctl gibt es hier nicht als Paket – wird bei angeschlossenen AIO/Smart-Geräten per pip nachinstalliert"
     fi
+    fi
 fi
 
-if ! have_python; then
+if [[ -n $APPIMAGE_SRC ]]; then
+    ok "Python, Oberfläche und liquidctl kommen aus dem AppImage"
+elif ! have_python; then
     fail "Python 3.10 oder neuer wird benötigt (gefunden: $(python3 --version 2>&1 || echo keins))."
     exit 1
 fi
@@ -230,10 +247,26 @@ else
 fi
 
 # --- Programmdateien --------------------------------------------------------------
+if [[ -n $APPIMAGE_SRC ]]; then
+    step "AppImage-Inhalt nach $OPT kopieren"
+    rm -rf "${OPT:?}.new"
+    cp -a "$APPIMAGE_SRC/." "$OPT.new"
+    rm -rf "${OPT:?}" && mv "$OPT.new" "$OPT"
+    rm -rf "${LIBDIR:?}"   # eine frühere Installation aus dem Quellcode ersetzen
+    for mode in "fancontrol-linux:" "fancontrol-linuxd:--daemon" "fancontrol-linuxctl:--ctl"; do
+        rm -f "$PREFIX/bin/${mode%%:*}"   # kann ein Symlink der Quellcode-Installation sein
+        printf '#!/bin/sh\nexec %s/AppRun %s "$@"\n' "$OPT" "${mode#*:}" > "$PREFIX/bin/${mode%%:*}"
+        chmod 755 "$PREFIX/bin/${mode%%:*}"
+    done
+    install -Dm 644 "$OPT/usr/lib/fancontrol-linux/data/io.github.fancontrol_linux.desktop" "$PREFIX/share/applications/io.github.fancontrol_linux.desktop"
+    install -Dm 644 "$OPT/usr/lib/fancontrol-linux/data/io.github.fancontrol_linux.svg" "$PREFIX/share/icons/hicolor/scalable/apps/io.github.fancontrol_linux.svg"
+    SRC="$OPT/usr/lib/fancontrol-linux"
+    ok "Programm, Befehle, Startmenü-Eintrag"
+else
 step "Programm nach $LIBDIR kopieren"
 VENV_BACKUP=""
 if [[ -d "$LIBDIR/venv" ]]; then VENV_BACKUP=$(mktemp -d); mv "$LIBDIR/venv" "$VENV_BACKUP/"; fi
-rm -rf "$LIBDIR"
+rm -rf "${LIBDIR:?}" "${OPT:?}"
 install -d "$LIBDIR/bin"
 cp -r "$SRC/fancontrol_linux" "$LIBDIR/"
 find "$LIBDIR" -name '__pycache__' -type d -prune -exec rm -rf {} +
@@ -259,6 +292,8 @@ if [[ $INSTALL_DEPS -eq 1 ]] && ! have_liquidctl && lsusb 2>/dev/null | grep -qi
             hint "liquidctl konnte nicht installiert werden (Details: $LOG)"
         fi
     fi
+fi
+
 fi
 
 install -d -m 755 /etc/fancontrol-linux /etc/fancontrol-linux/profiles
@@ -474,7 +509,8 @@ fi
 
 # --- Zusammenfassung ------------------------------------------------------------------
 step "Erkannte Hardware"
-PYTHONPATH="$LIBDIR" python3 - <<'EOF' 2>>"$LOG" || warn "Übersicht nicht verfügbar (Details: $LOG)"
+if [[ -n $APPIMAGE_SRC ]]; then SUMMARY=("$OPT/AppRun" --python -); else SUMMARY=(env PYTHONPATH="$LIBDIR" python3 -); fi
+"${SUMMARY[@]}" <<'EOF' 2>>"$LOG" || warn "Übersicht nicht verfügbar (Details: $LOG)"
 from fancontrol_linux.hwmon import Hardware
 marks = {"ok": "✓", "warn": "!", "off": "-"}
 for row in Hardware().info():

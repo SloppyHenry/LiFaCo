@@ -8,7 +8,7 @@ from gi.repository import Adw, Gdk, Graphene, Gsk, Gtk  # noqa: E402
 
 from .util import c_to_disp, temp_unit  # noqa: E402
 
-FULL_MARGINS = (46, 16, 14, 32)
+FULL_MARGINS = (54, 16, 14, 32)
 COMPACT_MARGINS = (2, 2, 8, 2)
 HIT_RADIUS = 10
 MIN_POINTS = 2
@@ -17,8 +17,15 @@ MIN_POINTS = 2
 accent_override = None
 
 
+def rgba(red, green, blue, alpha=1.0):
+    # Gdk.RGBA(red=...) ignores its arguments in PyGObject < 3.52, so set the fields explicitly.
+    color = Gdk.RGBA()
+    color.red, color.green, color.blue, color.alpha = red, green, blue, alpha
+    return color
+
+
 def _rgba(c, alpha):
-    return Gdk.RGBA(red=c.red, green=c.green, blue=c.blue, alpha=alpha)
+    return rgba(c.red, c.green, c.blue, alpha)
 
 
 def _line_path(points):
@@ -191,7 +198,7 @@ class GraphEditor(Gtk.Widget):
         elif hasattr(style, "get_accent_color_rgba"):
             accent = style.get_accent_color_rgba()
         else:
-            accent = Gdk.RGBA(red=0.21, green=0.52, blue=0.89, alpha=1)
+            accent = rgba(0.21, 0.52, 0.89, 1)
         x, y, w, h = self._plot_rect()
         t0, t1 = self.temp_range
         grid, dim = _rgba(fg, 0.12), _rgba(fg, 0.6)
@@ -238,13 +245,13 @@ class GraphEditor(Gtk.Widget):
             active = i in (self.hover_index, self.drag_index)
             dot = _circle(px, py, 7 if active else 5)
             snap.append_fill(dot, Gsk.FillRule.WINDING, _rgba(accent, 1))
-            snap.append_stroke(dot, Gsk.Stroke.new(1.5), Gdk.RGBA(red=1, green=1, blue=1, alpha=0.9))
+            snap.append_stroke(dot, Gsk.Stroke.new(1.5), rgba(1, 1, 1, 0.9))
             if active:
                 label = (px, py, f"{self._fmt_t(pt)} → {self._fmt_y(ps)}")
 
         if self.live:
             temp, out = self.live
-            red = Gdk.RGBA(red=0.9, green=0.3, blue=0.2, alpha=0.85)
+            red = rgba(0.9, 0.3, 0.2, 0.85)
             lx, _ = self._to_screen(max(t0, min(t1, temp)), 0)
             _, ly = self._to_screen(temp, min(out, self.y_max))
             stroke = Gsk.Stroke.new(1.5)
@@ -265,9 +272,9 @@ class GraphEditor(Gtk.Widget):
         bg = Gsk.RoundedRect()
         bg.init_from_rect(Graphene.Rect().init(bx - 6, by - 3, tw + 12, th + 6), 6)
         snap.push_rounded_clip(bg)
-        snap.append_color(Gdk.RGBA(red=0, green=0, blue=0, alpha=0.75), Graphene.Rect().init(bx - 6, by - 3, tw + 12, th + 6))
+        snap.append_color(rgba(0, 0, 0, 0.75), Graphene.Rect().init(bx - 6, by - 3, tw + 12, th + 6))
         snap.pop()
         snap.save()
         snap.translate(Graphene.Point().init(bx, by))
-        snap.append_layout(layout, Gdk.RGBA(red=1, green=1, blue=1, alpha=1))
+        snap.append_layout(layout, rgba(1, 1, 1, 1))
         snap.restore()

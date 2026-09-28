@@ -91,7 +91,7 @@ In **Einstellungen → Hardware-Unterstützung** zeigt das Programm, was erkannt
 
 - Python ≥ 3.10 und systemd, OpenRC oder runit
 - Für die Oberfläche: GTK ≥ 4.14 und libadwaita ≥ 1.5. Auf älteren Systemen (z. B. Debian 12, Ubuntu 22.04)
-  laufen Dienst und `fancontrol-linuxctl`, aber nicht die Oberfläche.
+  das **AppImage** verwenden, das alles mitbringt.
 - Für Tray-Symbole eine Kontrollleiste mit StatusNotifier (KDE, Xfce, Cinnamon, GNOME mit AppIndicator-Erweiterung –
   die installiert der Installer unter GNOME mit)
 
@@ -101,7 +101,8 @@ Installer, Dienst und Kommandozeile sind in Containern getestet auf:
 |---|---|
 | Ubuntu 24.04 (GTK 4.14, Adw 1.5) | ✓ |
 | Debian 13 (GTK 4.18, Adw 1.7) | ✓ |
-| Debian 12 (GTK 4.8, Adw 1.2) | – nur Dienst und Kommandozeile |
+| Debian 12 (GTK 4.8, Adw 1.2) | über das AppImage ✓ |
+| Ubuntu 22.04 (GTK 4.6) | über das AppImage ✓ |
 | Fedora (aktuell) | ✓ |
 | Arch Linux | ✓ |
 | openSUSE Tumbleweed | ✓ |
@@ -109,6 +110,27 @@ Installer, Dienst und Kommandozeile sind in Containern getestet auf:
 | Void Linux (runit) | ✓ |
 
 Linux Mint, Pop!_OS, Manjaro, EndeavourOS, CachyOS, Rocky/Alma usw. werden über ihre Basisdistribution erkannt.
+
+## AppImage (eine Datei, läuft auch auf älteren Systemen)
+
+Das AppImage bringt Python, GTK 4, libadwaita und liquidctl mit und läuft ohne weitere Pakete auf praktisch
+jedem x86_64-Linux, getestet u. a. auf Debian 12 und Ubuntu 22.04, auf denen die normale Installation keine
+Oberfläche bietet.
+
+```bash
+chmod +x FanControl-x86_64.AppImage
+./FanControl-x86_64.AppImage                  # Oberfläche starten
+sudo ./FanControl-x86_64.AppImage --install   # Dienst + Hardware einrichten (Optionen wie install.sh)
+```
+
+Die Lüfter regelt ein Hintergrunddienst mit root-Rechten, den ein AppImage nicht selbst betreiben kann. `--install`
+kopiert das AppImage deshalb nach `/opt/fancontrol-linux` und richtet Dienst, Befehle, Startmenü-Eintrag und Treiber
+genauso ein wie `install.sh`. Startest du die Oberfläche ohne eingerichteten Dienst, bietet sie dafür den Knopf
+**„Dienst installieren“** an. Entfernen: `sudo ./FanControl-x86_64.AppImage --uninstall [--purge]`.
+
+Weitere Modi: `--ctl <befehl>` (wie `fancontrol-linuxctl`), `--daemon`.
+
+Selbst bauen (braucht Docker oder Podman): `./packaging/appimage/build.sh` → `dist/FanControl-x86_64.AppImage`
 
 ## Installation
 
