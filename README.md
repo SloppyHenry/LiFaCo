@@ -33,6 +33,11 @@ Linux FanControl is an independent implementation. The original is closed source
 
 **Custom sensors**: mix, time average (up to 3600 s), offset (fixed or proportional), file sensor
 
+**Readable names**: instead of driver names such as `it8689_61030507: pwm1` or `k10temp: Tctl`, sensors and fan
+outputs are named after the actual hardware – e.g. "AMD Ryzen 9 5950X: Package (Tctl)", "NVMe KINGSTON SNV2S1000G:
+Composite" or "Mainboard (ITE IT8689): Fan header 1" (CPU model, PCI ID database, device models). Which physical
+header is "CPU_FAN" or "SYS_FAN2" is not reported by the hardware – use **Identify** and give the fan your own name.
+
 **User interface**
 - Side menu: Controls, Curves, Sensors, Design, Tray, Settings, About
 - Colour themes (classic blue/yellow, ocean, forest, ember, violet, graphite, Adwaita) or **custom colours** for

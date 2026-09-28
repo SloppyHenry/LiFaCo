@@ -187,7 +187,7 @@ def scan(temps, fans, outputs):
                 idx, _, name = line.partition(",")
                 if idx.strip().isdigit():
                     sid = f"nvidia:{idx.strip()}:temp"
-                    temps[sid] = NvidiaSmiTemp(sid, _gpu_label(name.strip()), int(idx))
+                    temps[sid] = NvidiaSmiTemp(sid, f"{_gpu_label(name.strip())}: GPU", int(idx))
         return
     try:
         handles = nvml.devices()
@@ -199,15 +199,15 @@ def scan(temps, fans, outputs):
         except OSError:
             name = f"NVIDIA GPU {i}"
         sid = f"nvidia:{i}:temp"
-        temps[sid] = NvidiaTemp(sid, name, nvml, h)
+        temps[sid] = NvidiaTemp(sid, f"{name}: GPU", nvml, h)
         for f in range(nvml.num_fans(h)):
             rpm_id = f"nvidia:{i}:fan{f}"
-            rpm = NvidiaFanRpm(rpm_id, f"{name}: fan {f + 1}", nvml, h, f)
+            rpm = NvidiaFanRpm(rpm_id, f"{name}: Fan {f + 1}", nvml, h, f)
             has_rpm = rpm.read() is not None
             if has_rpm:
                 fans[rpm_id] = rpm
             out_id = f"nvidia:{i}:pwm{f}"
-            outputs[out_id] = NvidiaFanOutput(out_id, f"{name}: fan {f + 1}", nvml, h, f,
+            outputs[out_id] = NvidiaFanOutput(out_id, f"{name}: Fan {f + 1}", nvml, h, f,
                                               rpm_id if has_rpm else None)
 
 

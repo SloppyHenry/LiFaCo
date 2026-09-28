@@ -4,7 +4,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
-from . import amdgpu, liquidctl_backend, nvidia, thermaltake
+from . import amdgpu, liquidctl_backend, naming, nvidia, thermaltake
 
 PWM_MAX = 255
 PWM_MODE_MANUAL = 1
@@ -187,6 +187,7 @@ class Hardware:
         self.temps, self.fans, self.pwms = {}, {}, {}
         self.amd_od, self.chips = {}, []
         seen = set()
+        device_counts = {}
         try:
             dirs = sorted(os.listdir(self.root), key=lambda d: int(re.sub(r"\D", "", d) or 0))
         except OSError:
@@ -196,25 +197,29 @@ class Hardware:
             name = _read(os.path.join(path, "name")) or d
             key = _device_key(path, name, seen)
             self.chips.append(name)
+            device = naming.device_name(path, name)
+            device_counts[device] = device_counts.get(device, 0) + 1
+            if device_counts[device] > 1:
+                device = f"{device} #{device_counts[device]}"
             try:
                 entries = os.listdir(path)
             except OSError:
                 continue
             for n in _numbered(entries, "temp", "_input"):
-                label = _read(os.path.join(path, f"temp{n}_label")) or f"temp{n}"
+                label = naming.channel_label(name, "temp", n, _read(os.path.join(path, f"temp{n}_label")))
                 sid = f"{key}:temp{n}"
-                self.temps[sid] = TempSensor(sid, f"{name}: {label}", os.path.join(path, f"temp{n}_input"))
+                self.temps[sid] = TempSensor(sid, f"{device}: {label}", os.path.join(path, f"temp{n}_input"))
             for n in _numbered(entries, "fan", "_input"):
-                label = _read(os.path.join(path, f"fan{n}_label")) or f"fan{n}"
+                label = naming.channel_label(name, "fan", n, _read(os.path.join(path, f"fan{n}_label")))
                 sid = f"{key}:fan{n}"
-                self.fans[sid] = FanSensor(sid, f"{name}: {label}", os.path.join(path, f"fan{n}_input"))
+                self.fans[sid] = FanSensor(sid, f"{device}: {label}", os.path.join(path, f"fan{n}_input"))
             od = amdgpu.od_status(path) if name == "amdgpu" else None
             if od:
                 self.amd_od[key] = od
             if od == "active":
                 sid = f"{key}:pwm1"
                 fan = f"{key}:fan1"
-                self.pwms[sid] = amdgpu.AmdOdOutput(sid, f"{name}: fan (overdrive)", path,
+                self.pwms[sid] = amdgpu.AmdOdOutput(sid, f"{device}: fan control (overdrive)", path,
                                                     fan if fan in self.fans else None)
                 continue
             if od == "disabled":
@@ -224,7 +229,7 @@ class Hardware:
                 enable = os.path.join(path, f"pwm{n}_enable")
                 fan = f"{key}:fan{n}"
                 self.pwms[sid] = PwmOutput(
-                    sid, f"{name}: pwm{n}", os.path.join(path, f"pwm{n}"),
+                    sid, f"{device}: {naming.channel_label(name, 'pwm', n, None)}", os.path.join(path, f"pwm{n}"),
                     enable if os.path.exists(enable) else None,
                     fan if fan in self.fans else None,
                 )

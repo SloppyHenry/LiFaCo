@@ -149,7 +149,8 @@ class HardwareEngineTests(unittest.TestCase):
     def test_scan(self):
         self.assertIn("nct6798:pwm1", self.hw.pwms)
         self.assertEqual(self.hw.pwms["nct6798:pwm1"].default_fan, "nct6798:fan1")
-        self.assertEqual(self.hw.temps["k10temp:temp1"].label, "k10temp: Tctl")
+        self.assertTrue(self.hw.temps["k10temp:temp1"].label.endswith(": Package (Tctl)"))
+        self.assertEqual(self.hw.pwms["nct6798:pwm1"].label, "Mainboard (Nuvoton NCT6798): Fan header 1")
         _set(self.root, "hwmon1/temp1_input", 55500)
         self.assertEqual(self.hw.read_temps()["k10temp:temp1"], 55.5)
 

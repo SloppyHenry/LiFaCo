@@ -29,6 +29,12 @@ def _slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
+def channel_title(channel):
+    """'fan2' -> 'Fan 2', 'pump' -> 'Pump'."""
+    m = re.fullmatch(r"([a-z]+)(\d*)", channel)
+    return f"{m.group(1).capitalize()} {m.group(2)}".strip() if m else channel
+
+
 def channel_for(key):
     """liquidctl channel name from a status key: 'Fan 2 speed' -> 'fan2', 'Pump speed' -> 'pump'."""
     m = re.match(r"^(fan|pump)\s*(\d*)\s+(speed|duty)$", key.strip().lower())
@@ -209,11 +215,11 @@ class LiquidctlBackend:
                     channel = channel_for(k)
                     if channel == "pump" and has_pump_modes(dev):
                         out_id = f"{key}:pump"
-                        outputs[out_id] = LiquidPumpModeOutput(out_id, f"{dev.description}: pump (modes)", device,
+                        outputs[out_id] = LiquidPumpModeOutput(out_id, f"{dev.description}: Pump (modes)", device,
                                                                duty_keys.get(channel), fan_id)
                     elif channel:
                         out_id = f"{key}:{channel}"
-                        outputs[out_id] = LiquidOutput(out_id, f"{dev.description}: {channel}", device, channel,
+                        outputs[out_id] = LiquidOutput(out_id, f"{dev.description}: {channel_title(channel)}", device, channel,
                                                        duty_keys.get(channel), fan_id)
 
     def info(self):
