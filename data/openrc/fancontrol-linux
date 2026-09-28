@@ -1,0 +1,20 @@
+#!/sbin/openrc-run
+# FanControl for Linux – Hintergrunddienst (OpenRC)
+
+name="FanControl for Linux"
+description="Lüftersteuerung"
+command="/usr/local/bin/fancontrol-linuxd"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/fancontrol-linux.log"
+error_log="/var/log/fancontrol-linux.log"
+retry="TERM/10/KILL/5"
+
+depend() {
+    need localmount
+    after modules udev
+}
+
+start_pre() {
+    checkpath -d -m 0755 /run/fancontrol-linux
+}

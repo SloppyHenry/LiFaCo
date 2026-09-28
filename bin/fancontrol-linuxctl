@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+import glob
+import os
+import sys
+
+here = os.path.dirname(os.path.realpath(__file__))
+for candidate in (os.path.join(here, ".."), "/usr/local/lib/fancontrol-linux", "/usr/lib/fancontrol-linux"):
+    if os.path.isdir(os.path.join(candidate, "fancontrol_linux")):
+        base = os.path.abspath(candidate)
+        sys.path.insert(0, base)
+        # Optional private environment for Python packages the distribution does not ship (e.g. liquidctl).
+        sys.path.extend(glob.glob(os.path.join(base, "venv", "lib", f"python{sys.version_info[0]}.{sys.version_info[1]}",
+                                               "site-packages")))
+        break
+
+from fancontrol_linux.cli import main  # noqa: E402
+
+sys.exit(main())

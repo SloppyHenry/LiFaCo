@@ -1,0 +1,4 @@
+#!/bin/sh
+# FanControl for Linux – Hintergrunddienst (runit)
+mkdir -p /run/fancontrol-linux
+exec /usr/local/bin/fancontrol-linuxd 2>&1
