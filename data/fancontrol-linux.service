@@ -9,8 +9,11 @@ ExecStart=/usr/local/bin/fancontrol-linuxd
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=3
-RuntimeDirectory=fancontrol-linux
+# liquidctl keeps device state in /run/liquidctl; the strict sandbox needs it listed as a runtime directory.
+# Preserve it on stop so other liquidctl users keep their state.
+RuntimeDirectory=fancontrol-linux liquidctl
 RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
 ProtectSystem=strict
 ReadWritePaths=/etc/fancontrol-linux
 ProtectHome=true

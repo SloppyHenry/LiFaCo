@@ -4,6 +4,7 @@ Devices that have a kernel hwmon driver (nzxt-kraken3, nzxt-smart2, corsair-cpro
 already handled by hwmon; liquidctl covers the rest. Only used when the liquidctl Python package is installed.
 """
 
+import inspect
 import logging
 import re
 import time
@@ -12,6 +13,8 @@ log = logging.getLogger("fancontrol-linuxd")
 CACHE_SECONDS = 0.5
 # Speed a device is left at when the daemon stops and the device has no automatic mode we can return to.
 FALLBACK_PROFILE = [(20, 30), (30, 50), (40, 80), (50, 100)]
+# Pumps that only know modes (Corsair Hydro Platinum/PRO XT, Hydro Pro …): percent thresholds -> mode.
+PUMP_MODES = [(40, "quiet"), (75, "balanced"), (101, "extreme")]
 
 
 def available():
@@ -121,6 +124,43 @@ class LiquidOutput:
         self._taken = False
 
 
+def has_pump_modes(dev):
+    """True for drivers that set the pump through initialize(pump_mode=...) instead of set_fixed_speed."""
+    try:
+        return "pump_mode" in inspect.signature(dev.initialize).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+class LiquidPumpModeOutput(LiquidOutput):
+    """Maps the requested percentage to the pump modes quiet/balanced/extreme."""
+
+    def __init__(self, sid, label, device, duty_key, default_fan):
+        super().__init__(sid, label, device, "pump", duty_key, default_fan)
+        self._mode = None
+
+    def write_percent(self, percent):
+        mode = next(m for limit, m in PUMP_MODES if percent < limit)
+        if mode == self._mode:
+            return
+        try:
+            self.device.dev.initialize(pump_mode=mode)
+        except Exception as e:
+            raise OSError(f"liquidctl: {e}") from e
+        self._mode = mode
+        self._last = float(percent)
+
+    def restore(self):
+        if not self._taken:
+            return
+        try:
+            self.device.dev.initialize(pump_mode="balanced")
+        except Exception:
+            pass
+        self._taken = False
+        self._mode = None
+
+
 class LiquidctlBackend:
     def __init__(self):
         self.devices: list[_Device] = []
@@ -167,7 +207,11 @@ class LiquidctlBackend:
                     fan_id = f"{key}:{slug}"
                     fans[fan_id] = LiquidFan(fan_id, f"{dev.description}: {k}", device, k)
                     channel = channel_for(k)
-                    if channel:
+                    if channel == "pump" and has_pump_modes(dev):
+                        out_id = f"{key}:pump"
+                        outputs[out_id] = LiquidPumpModeOutput(out_id, f"{dev.description}: pump (modes)", device,
+                                                               duty_keys.get(channel), fan_id)
+                    elif channel:
                         out_id = f"{key}:{channel}"
                         outputs[out_id] = LiquidOutput(out_id, f"{dev.description}: {channel}", device, channel,
                                                        duty_keys.get(channel), fan_id)

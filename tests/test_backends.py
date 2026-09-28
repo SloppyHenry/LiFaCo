@@ -125,6 +125,44 @@ class LiquidctlTests(unittest.TestCase):
         self.assertEqual(liquidctl_backend.channel_for("Fan speed"), "fan")
 
 
+class FakeHydroPlatinum(FakeLiquidDevice):
+    description = "Corsair Hydro H115i Pro XT"
+
+    def initialize(self, pump_mode="balanced", **kwargs):
+        self.calls.append(("init", pump_mode))
+
+    def get_status(self):
+        return [("Liquid temperature", 30.2, "°C"), ("Fan 1 speed", 800, "rpm"), ("Fan 1 duty", 40, "%"),
+                ("Fan 2 speed", 810, "rpm"), ("Fan 2 duty", 40, "%"), ("Pump speed", 2200, "rpm"),
+                ("Pump duty", 60, "%")]
+
+    def set_fixed_speed(self, channel, duty):
+        if channel == "pump":
+            raise ValueError("unknown channel, should be one of: 'fan', 'fan1', 'fan2'")
+        self.calls.append(("fixed", channel, duty))
+
+
+class HydroPlatinumTests(unittest.TestCase):
+    def test_pump_modes_and_fans(self):
+        dev = FakeHydroPlatinum()
+        temps, fans, outputs = {}, {}, {}
+        liquidctl_backend.LiquidctlBackend().scan(temps, fans, outputs, finder=lambda: [dev])
+        key = "liquidctl:corsair-hydro-h115i-pro-xt"
+        self.assertEqual(sorted(outputs), [f"{key}:fan1", f"{key}:fan2", f"{key}:pump"])
+        pump = outputs[f"{key}:pump"]
+        self.assertIsInstance(pump, liquidctl_backend.LiquidPumpModeOutput)
+        pump.take_control()
+        for pct in (20, 30, 60, 90):
+            pump.write_percent(pct)
+        self.assertEqual([c for c in dev.calls if c[0] == "init"],
+                         [("init", "balanced"), ("init", "quiet"), ("init", "balanced"), ("init", "extreme")])
+        pump.restore()
+        self.assertEqual(dev.calls[-1], ("init", "balanced"))
+        outputs[f"{key}:fan2"].write_percent(55)
+        self.assertIn(("fixed", "fan2", 55), dev.calls)
+        self.assertEqual(temps[f"{key}:liquid-temperature"].read(), 30.2)
+
+
 class ThermaltakeTests(unittest.TestCase):
     def test_detection_and_packets(self):
         with tempfile.TemporaryDirectory() as d:
