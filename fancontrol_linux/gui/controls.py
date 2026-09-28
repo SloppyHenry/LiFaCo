@@ -118,9 +118,15 @@ class ControlsPage(Adw.Bin):
                 ("Reset fine tuning", reset)]
         if ctl.get("calibration"):
             menu.append(("Delete calibration", clear_calibration))
+        device, _sep, channel = info["label"].rpartition(": ")
+        own_name = win.display_name(pid)
+        # Long hardware names would be cut off in the title: show the channel there, the device below.
+        title = own_name if own_name != info["label"] else (channel or info["label"])
         ui.card_header(c, "fc-gauge-symbolic",
-                       ui.name_entry(win.display_name(pid), info["label"],
+                       ui.name_entry(title, channel or info["label"],
                                      setter("name", rebuild={"sensors", "curves"})), menu)
+        if device:
+            c.append(ui.caption(device))
 
         row = Gtk.Box(spacing=12)
         switch = Gtk.Switch(active=ctl["enabled"], valign=Gtk.Align.END,

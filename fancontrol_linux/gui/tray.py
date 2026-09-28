@@ -111,6 +111,10 @@ class Tray:
         return True
 
     def stop(self):
+        if self.renderer is not None:
+            # A realized renderer that is garbage-collected aborts the process (GTK assertion).
+            self.renderer.unrealize()
+            self.renderer = None
         if not self.bus:
             return
         for item in list(self.items.values()):

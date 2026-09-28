@@ -6,9 +6,13 @@ Linux FanControl is an independent implementation. The original is closed source
 
 ![Controls](docs/controls.png)
 
-| Curves | Curve editor | Design |
-|---|---|---|
-| ![Curves](docs/curves.png) | ![Editor](docs/curve-editor.png) | ![Design](docs/design.png) |
+| Curves | Curve editor |
+|---|---|
+| ![Curves](docs/curves.png) | ![Editor](docs/curve-editor.png) |
+
+| Themes | "Neon" theme |
+|---|---|
+| ![Design](docs/design.png) | ![Neon](docs/curves-neon.png) |
 
 ## Features
 
@@ -40,8 +44,10 @@ header is "CPU_FAN" or "SYS_FAN2" is not reported by the hardware – use **Iden
 
 **User interface**
 - Side menu: Controls, Curves, Sensors, Design, Tray, Settings, About
-- Colour themes (classic blue/yellow, ocean, forest, ember, violet, graphite, Adwaita) or **custom colours** for
-  accent, cards and header bar, plus light/dark/system
+- **Midnight themes** (default): a dark look with a colour gradient for curves, switches and buttons – Aurora
+  (blue → violet), Neon (green → lime), Rainbow, Sunset, Amber, Mint, Ice and Orchid
+- Classic themes (blue/yellow, ocean, forest, ember, violet, graphite, Adwaita) or **custom colours** for accent
+  (optionally as a gradient), cards and header bar, plus light/dark/system
 - °C or °F, hide cards (the eye icon shows them again), help (?) per section and per curve type
 - **Tray**: main icon with a menu (open, switch profile, quit) and any number of **value icons**
   (temperature, % or RPM) in your own colours; optionally start in the tray at login

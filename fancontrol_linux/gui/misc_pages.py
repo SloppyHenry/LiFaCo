@@ -4,11 +4,12 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Graphene, Gsk, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gtk  # noqa: E402
 
 from .. import APP_ID, __version__  # noqa: E402
 from . import theme as thememod  # noqa: E402
 from .util import combo_row, spin_row, switch_row, temp_spin_row  # noqa: E402
+from .widgets import Swatch  # noqa: E402
 
 AUTOSTART_FILE = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
                               "autostart", f"{APP_ID}.desktop")
@@ -23,22 +24,6 @@ def _rgba(color):
     rgba = Gdk.RGBA()
     rgba.parse(color)
     return rgba
-
-
-class Swatch(Gtk.Widget):
-    def __init__(self, colors):
-        super().__init__(valign=Gtk.Align.CENTER)
-        self.colors = colors
-        self.set_size_request(22 * len(colors) + 4 * (len(colors) - 1), 22)
-
-    def do_snapshot(self, snap):
-        for i, color in enumerate(self.colors):
-            rect = Graphene.Rect().init(i * 26, 0, 22, 22)
-            rounded = Gsk.RoundedRect()
-            rounded.init_from_rect(rect, 11)
-            snap.push_rounded_clip(rounded)
-            snap.append_color(_rgba(color), rect)
-            snap.pop()
 
 
 def _color_button(color, on_change):
@@ -66,37 +51,52 @@ class DesignPage(Adw.Bin):
             prefs.set("theme", keys[i])
             self.win.apply_theme()
         general.add(combo_row("Light / dark", [n for _k, n, _s in thememod.SCHEMES],
-                              keys.index(current) if current in keys else 0, set_scheme))
+                              keys.index(current) if current in keys else 0, set_scheme,
+                              subtitle="Midnight themes are always dark"))
         general.add(combo_row("Temperature unit", ["Celsius (°C)", "Fahrenheit (°F)"],
                               1 if prefs.get("fahrenheit") else 0, self.win.set_fahrenheit))
         page.add(general)
 
-        palettes = Adw.PreferencesGroup(title="Colour theme", description="Accent colour, cards and header bar")
-        active = prefs.get("palette") or "classic"
-        first = None
+        active = prefs.get("palette") or thememod.DEFAULT_PALETTE
         custom = dict(thememod.DEFAULT_CUSTOM, **(prefs.get("custom_colors") or {}))
-        for key, (name, accent, card, header) in thememod.PALETTES.items():
-            row = Adw.ActionRow(title=name)
-            check = Gtk.CheckButton(active=key == active, valign=Gtk.Align.CENTER)
-            if first is None:
-                first = check
-            else:
-                check.set_group(first)
-            check.connect("toggled", lambda c, k=key: c.get_active() and self._set_palette(k))
-            row.add_prefix(check)
-            row.set_activatable_widget(check)
-            if key == "custom":
-                row.add_suffix(Swatch([custom["accent"], custom["card"], custom["header"]]))
-            elif accent:
-                row.add_suffix(Swatch([accent, card, header]))
-            else:
-                row.set_subtitle("System colours")
-            palettes.add(row)
-        page.add(palettes)
+        first = None
+        groups = (("midnight", "Midnight themes", "Dark look with a colour gradient for curves, switches and buttons "
+                                                  "(always dark)"),
+                  ("classic", "Classic themes", "Solid colours for the cards and the header bar"),
+                  ("custom", "Custom", ""))
+        for group_key, title, description in groups:
+            group = Adw.PreferencesGroup(title=title, description=description)
+            for key, pal in thememod.PALETTES.items():
+                if pal["group"] != group_key:
+                    continue
+                row = Adw.ActionRow(title=pal["name"])
+                check = Gtk.CheckButton(active=key == active, valign=Gtk.Align.CENTER)
+                if first is None:
+                    first = check
+                else:
+                    check.set_group(first)
+                check.connect("toggled", lambda c, k=key: c.get_active() and self._set_palette(k))
+                row.add_prefix(check)
+                row.set_activatable_widget(check)
+                if key == thememod.DEFAULT_PALETTE:
+                    row.set_subtitle("Default")
+                if group_key == "midnight":
+                    row.add_suffix(Swatch(pal["accent"], gradient=True))
+                elif key == "custom":
+                    row.add_suffix(Swatch([custom["accent"], custom["accent2"]], gradient=True))
+                    row.add_suffix(Swatch([custom["card"], custom["header"]]))
+                elif pal["accent"]:
+                    row.add_suffix(Swatch([pal["accent"][0], pal["card"], pal["header"]]))
+                else:
+                    row.set_subtitle("System colours")
+                group.add(row)
+            page.add(group)
 
         custom_group = Adw.PreferencesGroup(title="Custom colours",
-                                            description="Changing a colour here switches to “Custom colours”")
-        for key, title in (("accent", "Accent colour"), ("card", "Cards"), ("header", "Header bar")):
+                                            description="Changing a colour here switches to “Custom colours”. "
+                                                        "Two different accent colours give a gradient.")
+        for key, title in (("accent", "Accent colour"), ("accent2", "Accent colour 2 (gradient end)"),
+                           ("card", "Cards"), ("header", "Header bar")):
             row = Adw.ActionRow(title=title)
             row.add_suffix(_color_button(custom[key], lambda color, k=key: self._set_custom(k, color)))
             custom_group.add(row)

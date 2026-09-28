@@ -110,17 +110,26 @@ def fmt_pct(v):
     return "–" if v is None else f"{v:.0f} %"
 
 
+PREFS_VERSION = 2
+
+
 class GuiPrefs:
     def __init__(self):
         base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
         self.path = os.path.join(base, "fancontrol-linux", "gui.json")
-        self.data = {"theme": "system", "palette": "classic", "custom_colors": {}, "setup_done": False,
-                     "fahrenheit": False, "show_hidden": False, "tray_enabled": True, "tray_sensors": []}
+        self.data = {"theme": "system", "palette": None, "custom_colors": {}, "setup_done": False,
+                     "fahrenheit": False, "show_hidden": False, "tray_enabled": True, "tray_sensors": [],
+                     "prefs_version": PREFS_VERSION}
         try:
             with open(self.path) as f:
-                self.data.update(json.load(f))
+                stored = json.load(f)
         except (OSError, ValueError):
-            pass
+            stored = {}
+        if stored.get("prefs_version", 1) < 2 and stored.get("palette") == "classic":
+            # Version 1 saved the then-default theme on every change; treat it as "not chosen".
+            stored.pop("palette")
+        self.data.update(stored)
+        self.data["prefs_version"] = PREFS_VERSION
 
     def get(self, key):
         return self.data.get(key)

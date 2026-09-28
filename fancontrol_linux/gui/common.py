@@ -48,7 +48,7 @@ class CardFlow(Gtk.FlowBox):
     def __init__(self):
         super().__init__(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False, column_spacing=12,
                          row_spacing=12, min_children_per_line=1, max_children_per_line=8,
-                         valign=Gtk.Align.START)
+                         valign=Gtk.Align.START, css_classes=["fc-cards"])
 
     def append(self, widget):
         widget.set_size_request(CARD_WIDTH, -1)

@@ -4,8 +4,10 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Graphene, Gsk, Gtk  # noqa: E402
+from gi.repository import Graphene, Gsk, Gtk  # noqa: E402
 
+from . import paint  # noqa: E402
+from .paint import rgba  # noqa: E402
 from .util import c_to_disp, temp_unit  # noqa: E402
 
 FULL_MARGINS = (54, 16, 14, 32)
@@ -13,19 +15,9 @@ COMPACT_MARGINS = (2, 2, 8, 2)
 HIT_RADIUS = 10
 MIN_POINTS = 2
 
-# Set by the theme so graphs follow the app accent instead of the desktop accent.
-accent_override = None
-
-
-def rgba(red, green, blue, alpha=1.0):
-    # Gdk.RGBA(red=...) ignores its arguments in PyGObject < 3.52, so set the fields explicitly.
-    color = Gdk.RGBA()
-    color.red, color.green, color.blue, color.alpha = red, green, blue, alpha
-    return color
-
 
 def _rgba(c, alpha):
-    return rgba(c.red, c.green, c.blue, alpha)
+    return paint.with_alpha(c, alpha)
 
 
 def _line_path(points):
@@ -192,13 +184,6 @@ class GraphEditor(Gtk.Widget):
 
     def do_snapshot(self, snap):
         fg = self.get_color()
-        style = Adw.StyleManager.get_default()
-        if accent_override is not None:
-            accent = accent_override
-        elif hasattr(style, "get_accent_color_rgba"):
-            accent = style.get_accent_color_rgba()
-        else:
-            accent = rgba(0.21, 0.52, 0.89, 1)
         x, y, w, h = self._plot_rect()
         t0, t1 = self.temp_range
         grid, dim = _rgba(fg, 0.12), _rgba(fg, 0.6)
@@ -228,14 +213,18 @@ class GraphEditor(Gtk.Widget):
         area.line_to(screen[-1][0], y + h)
         area.line_to(screen[0][0], y + h)
         area.close()
-        snap.append_fill(area.to_path(), Gsk.FillRule.WINDING, _rgba(accent, 0.25 if self.compact else 0.15))
-        snap.append_stroke(_line_path(screen).to_path(), Gsk.Stroke.new(2 if self.compact else 2.5), _rgba(accent, 1))
+        bounds = (x, y, w, h)
+        paint.fill(snap, area.to_path(), bounds, alpha=0.45 if self.compact else 0.35)
+        paint.stroke(snap, _line_path(screen).to_path(), 2 if self.compact else 2.5, bounds)
+
+        def dot_color(px):
+            return paint.color_at((px - x) / w if w else 0)
 
         if self.compact:
             if self.live:
                 temp, out = self.live
                 lx, ly = self._to_screen(max(t0, min(t1, temp)), min(out, self.y_max))
-                snap.append_fill(_circle(lx, ly, 4), Gsk.FillRule.WINDING, _rgba(accent, 1))
+                snap.append_fill(_circle(lx, ly, 4), Gsk.FillRule.WINDING, dot_color(lx))
                 snap.append_stroke(_circle(lx, ly, 4), Gsk.Stroke.new(1.5), _rgba(fg, 0.9))
             return
 
@@ -244,7 +233,7 @@ class GraphEditor(Gtk.Widget):
             px, py = self._to_screen(pt, ps)
             active = i in (self.hover_index, self.drag_index)
             dot = _circle(px, py, 7 if active else 5)
-            snap.append_fill(dot, Gsk.FillRule.WINDING, _rgba(accent, 1))
+            snap.append_fill(dot, Gsk.FillRule.WINDING, dot_color(px))
             snap.append_stroke(dot, Gsk.Stroke.new(1.5), rgba(1, 1, 1, 0.9))
             if active:
                 label = (px, py, f"{self._fmt_t(pt)} → {self._fmt_y(ps)}")

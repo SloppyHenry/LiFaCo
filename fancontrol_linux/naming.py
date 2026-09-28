@@ -31,6 +31,9 @@ MAINBOARD_OTHER = {
     "kraken3": "NZXT Kraken",
     "nzxtsmart2": "NZXT Smart Device",
 }
+# Used when the PCI ID database has no entry for a graphics card.
+GPU_FALLBACK = {"amdgpu": "AMD Radeon GPU", "radeon": "AMD Radeon GPU", "nouveau": "NVIDIA GPU (nouveau)",
+                "i915": "Intel graphics", "xe": "Intel graphics"}
 LABELS = {
     # AMD CPUs
     "Tctl": "Package (Tctl)", "Tdie": "Die (Tdie)",
@@ -146,7 +149,7 @@ def device_name(hwmon_dir, chip):
             name = pci_name(vendor, dev)
             if name:
                 return name
-    return chip
+    return GPU_FALLBACK.get(chip, chip)
 
 
 def channel_label(chip, kind, index, raw_label):
