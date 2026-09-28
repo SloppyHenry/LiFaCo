@@ -185,6 +185,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(levelname)s %(message)s")
+    if not args.verbose:
+        # liquidctl logs every single write at INFO level, which would flood the journal.
+        logging.getLogger("liquidctl").setLevel(logging.WARNING)
 
     daemon = Daemon()
     server = _prepare_socket(args.socket, args.group)

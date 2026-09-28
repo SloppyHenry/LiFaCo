@@ -11,6 +11,8 @@ import time
 
 log = logging.getLogger("fancontrol-linuxd")
 CACHE_SECONDS = 0.5
+# USB round trips are slow: only resend an unchanged duty after this long (e.g. after a resume).
+RESEND_SECONDS = 30.0
 # Speed a device is left at when the daemon stops and the device has no automatic mode we can return to.
 FALLBACK_PROFILE = [(20, 30), (30, 50), (40, 80), (50, 100)]
 # Pumps that only know modes (Corsair Hydro Platinum/PRO XT, Hydro Pro …): percent thresholds -> mode.
@@ -94,6 +96,7 @@ class LiquidOutput:
         self.duty_key, self.default_fan = duty_key, default_fan
         self._taken = False
         self._last = None
+        self._sent_at = 0.0
 
     @property
     def controlled(self):
@@ -111,11 +114,14 @@ class LiquidOutput:
 
     def write_percent(self, percent):
         duty = int(round(max(0, min(100, percent))))
+        now = time.monotonic()
+        if duty == self._last and now - self._sent_at < RESEND_SECONDS:
+            return
         try:
             self.device.dev.set_fixed_speed(self.channel, duty)
         except Exception as e:
             raise OSError(f"liquidctl: {e}") from e
-        self._last = duty
+        self._last, self._sent_at = duty, now
 
     def restore(self):
         if not self._taken:

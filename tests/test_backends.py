@@ -118,7 +118,9 @@ class LiquidctlTests(unittest.TestCase):
         self.assertEqual(pump.default_fan, f"{key}:pump-speed")
         fan.take_control()
         fan.write_percent(45.4)
+        fan.write_percent(45.2)  # same whole percent: no USB write
         fan.restore()
+        self.assertEqual(sum(1 for c in dev.calls if c[0] == "fixed"), 1)
         self.assertIn(("fixed", "fan1", 45), dev.calls)
         self.assertIn(("profile", "fan1"), dev.calls)
         self.assertIn("initialize", dev.calls)
