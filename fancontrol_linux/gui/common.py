@@ -8,7 +8,8 @@ from gi.repository import Adw, Gio, Gtk  # noqa: E402
 
 from .util import c_to_disp, delta_to_disp, disp_to_c, disp_to_delta, temp_unit  # noqa: E402
 
-CARD_WIDTH = 260
+CARD_WIDTH = 300
+CARD_MAX_WIDTH = 300
 
 
 def status_page(title, description, icon="dialog-information-symbolic", button=None):
@@ -32,11 +33,28 @@ def section(title, help_text):
                                valign=Gtk.Align.CENTER, popover=Gtk.Popover(child=help_label),
                                tooltip_text="Help"))
     box.append(head)
-    flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True, column_spacing=12,
-                       row_spacing=12, min_children_per_line=1, max_children_per_line=8,
-                       valign=Gtk.Align.START)
+    flow = CardFlow()
     box.append(flow)
     return box, flow
+
+
+class CardFlow(Gtk.FlowBox):
+    """Card grid where each row is as tall as its tallest card.
+
+    A homogeneous FlowBox would give every cell the height of the tallest card on the page, so expanding
+    one card would add space below all of them. Instead every card is clamped to the same width.
+    """
+
+    def __init__(self):
+        super().__init__(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False, column_spacing=12,
+                         row_spacing=12, min_children_per_line=1, max_children_per_line=8,
+                         valign=Gtk.Align.START)
+
+    def append(self, widget):
+        widget.set_size_request(CARD_WIDTH, -1)
+        clamp = Adw.Clamp(child=widget, maximum_size=CARD_MAX_WIDTH, tightening_threshold=CARD_MAX_WIDTH,
+                          valign=Gtk.Align.START)
+        super().append(clamp)
 
 
 def scroller(child):
