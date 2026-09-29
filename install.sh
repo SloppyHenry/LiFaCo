@@ -24,12 +24,14 @@ usage() {
     cat <<'EOF'
 Usage: sudo ./install.sh [options]
 
-  -y, --yes            No questions; safe default answers (no kernel/boot changes)
+  -y, --yes            No questions; safe default answers (installs missing drivers and libraries,
+                       but makes no boot changes such as kernel parameters or graphics drivers)
   --no-deps            Do not install packages
   --no-hardware        Do not detect/load drivers (sensors-detect, vendor modules)
   --no-service         Do not set up the background service
   --amd-overdrive      AMD RDNA3/4: enable overdrive for fan control without asking
-  --it87-dkms          Install the current it87 driver (ITE chips) via DKMS without asking
+  --it87-dkms          Install the newer it87 driver (ITE chips) via DKMS without asking
+                       (done automatically when an unsupported ITE chip is found)
   --thinkpad-fan       ThinkPad: enable fan control (thinkpad_acpi fan_control=1) without asking
   -h, --help           This help
 
@@ -349,6 +351,159 @@ regen_initramfs() {
     fi
 }
 
+has_ite_hwmon() { grep -sE '^it8' /sys/class/hwmon/*/name >/dev/null; }
+secure_boot() { [[ $(mokutil --sb-state 2>/dev/null || true) == *"SecureBoot enabled"* ]]; }
+REBOOT=0
+
+# Boot-time changes (kernel parameters, graphics drivers) are only made when someone answers at the terminal,
+# never with --yes.
+ask_boot() { [[ $ASSUME_YES -eq 0 && -t 0 ]] && ask "$1" y; }
+
+# Adds a kernel parameter through the boot loader; uninstall.sh removes it again.
+add_kernel_param() {
+    local param=$1 line cfg
+    if command -v grubby >/dev/null; then   # Fedora/RHEL (BLS entries)
+        grubby --update-kernel=ALL --args="$param" >>"$LOG" 2>&1 || return 1
+    elif [[ -f /etc/default/grub ]]; then   # Debian/Ubuntu, Arch, openSUSE …
+        [[ -f /etc/default/grub.fancontrol-linux.bak ]] || cp /etc/default/grub /etc/default/grub.fancontrol-linux.bak
+        line=$(grep -E '^GRUB_CMDLINE_LINUX_DEFAULT=' /etc/default/grub || true)
+        if [[ -z $line ]]; then
+            echo "GRUB_CMDLINE_LINUX_DEFAULT=\"$param\"" >> /etc/default/grub
+        elif ! [[ $line =~ [\"\ ]$param([\"\ ]|$) ]]; then
+            sed -i -E -e "s/^(GRUB_CMDLINE_LINUX_DEFAULT=\"[^\"]*)\"/\1 $param\"/" -e "s/^(GRUB_CMDLINE_LINUX_DEFAULT=\") +/\1/" /etc/default/grub
+        fi
+        if command -v update-grub >/dev/null; then update-grub >>"$LOG" 2>&1 || return 1
+        else
+            cfg=/boot/grub/grub.cfg; [[ -d /boot/grub2 ]] && cfg=/boot/grub2/grub.cfg
+            if command -v grub2-mkconfig >/dev/null; then grub2-mkconfig -o "$cfg" >>"$LOG" 2>&1 || return 1
+            elif command -v grub-mkconfig >/dev/null; then grub-mkconfig -o "$cfg" >>"$LOG" 2>&1 || return 1
+            else return 1
+            fi
+        fi
+    elif command -v kernelstub >/dev/null; then   # Pop!_OS (systemd-boot)
+        kernelstub -a "$param" >>"$LOG" 2>&1 || return 1
+    else
+        return 1
+    fi
+    mkdir -p "$STATE_DIR"
+    grep -qxF "$param" "$STATE_DIR/kernel-params" 2>/dev/null || echo "$param" >> "$STATE_DIR/kernel-params"
+    REBOOT=1
+}
+
+# Loads it87 and checks that the ITE chip really shows up. ignore_resource_conflict is needed on many
+# Gigabyte/BIOSTAR/ASRock boards, where ACPI claims the chip's I/O range.
+load_it87() {
+    local conf=/etc/modprobe.d/fancontrol-linux-it87.conf
+    echo "options it87 ignore_resource_conflict=1" > "$conf"
+    record "$conf"
+    modprobe -r it87 >>"$LOG" 2>&1 || true
+    if modprobe it87 >>"$LOG" 2>&1 && has_ite_hwmon; then
+        MODULES+=(it87)
+        ok "Driver loaded: it87${ITE_CHIP:+ ($ITE_CHIP)}"
+        return 0
+    fi
+    return 1
+}
+
+it87_dkms_installed() { [[ $(dkms status -m it87 -k "$(uname -r)" 2>/dev/null || true) == *installed* ]]; }
+
+# The it87 driver from github.com/frankcrawford/it87 supports many newer ITE chips (IT8613E, IT8686E,
+# IT8688E, IT8689E …) that the kernel's own driver does not know yet. DKMS rebuilds it for every new kernel.
+install_it87_dkms() {
+    local build
+    if it87_dkms_installed; then ok "it87 (DKMS) is already installed"; return 0; fi
+    install_role dkms "Build tools and kernel headers" || return 1
+    build=$(mktemp -d)
+    if ! git clone --depth 1 https://github.com/frankcrawford/it87 "$build/it87" >>"$LOG" 2>&1; then
+        rm -rf "$build"
+        hint "it87: download from GitHub failed (details: $LOG)"
+        return 1
+    fi
+    # Built from a directory named "it87": the DKMS package name has to match PACKAGE_NAME in its dkms.conf.
+    # The Makefile's final modprobe may fail (e.g. Secure Boot) – that is checked separately.
+    (cd "$build/it87" && make dkms TARGET="$(uname -r)") >>"$LOG" 2>&1 || true
+    rm -rf "$build"
+    if it87_dkms_installed; then
+        ok "it87 installed via DKMS (rebuilt automatically for new kernels)"
+        return 0
+    fi
+    hint "it87: building the driver failed (details: $LOG)"
+    return 1
+}
+
+# With Secure Boot, self-built modules only load once their signing key is enrolled (MOK).
+enroll_mok() {
+    local key=/var/lib/shim-signed/mok/MOK.der
+    [[ -f $key ]] || key=/var/lib/dkms/mok.pub
+    if [[ ! -f $key ]] || ! command -v mokutil >/dev/null; then
+        hint "Secure Boot blocks the self-built fan driver – disable Secure Boot or sign the it87 module"
+        return
+    fi
+    if [[ $(mokutil --test-key "$key" 2>&1 || true) == *"already enrolled"* ]]; then
+        hint "it87 does not load yet – reboot once (details: sudo dmesg | grep it87)"
+        REBOOT=1
+        return
+    fi
+    warn "Secure Boot is on: the fan driver is signed with a key the firmware does not know yet."
+    if [[ $ASSUME_YES -eq 0 && -t 0 ]] && ask "Register the key now? You choose a one-time password and confirm it once after the reboot" y; then
+        if mokutil --import "$key"; then
+            hint "Secure Boot: after the reboot choose 'Enroll MOK' → 'Continue' → 'Yes' and enter the password – then the fan driver loads"
+            REBOOT=1
+            return
+        fi
+    fi
+    hint "Secure Boot: register the key with 'sudo mokutil --import $key', reboot and choose 'Enroll MOK'"
+}
+
+have_nvml() {
+    ldconfig -p 2>/dev/null | grep 'libnvidia-ml.so.1' >/dev/null && return 0
+    compgen -G "/usr/lib*/libnvidia-ml.so.1" >/dev/null || compgen -G "/usr/lib/*-linux-gnu/libnvidia-ml.so.1" >/dev/null
+}
+# Version of the NVIDIA driver: the loaded kernel module, otherwise the one installed for the running kernel.
+nv_driver_version() {
+    cat /sys/module/nvidia/version 2>/dev/null || modinfo -F version nvidia 2>/dev/null || true
+}
+nvml_version() {   # version of the installed libnvidia-ml, e.g. 595.91.07
+    local lib
+    lib=$(ldconfig -p 2>/dev/null | awk '/libnvidia-ml\.so\.1 / { path = $NF } END { print path }')
+    [[ -n $lib ]] || return 0
+    lib=$(readlink -f "$lib")
+    [[ $lib == *.so.[0-9]* ]] && echo "${lib##*.so.}"
+}
+# The driver was installed with NVIDIA's .run installer: NVML comes from it, distribution packages would collide.
+nv_runfile() { [[ -x /usr/bin/nvidia-uninstall ]]; }
+apt_exact() {   # apt_exact <package> <driver version> → "package=<version>" for the build of exactly this driver
+    local ver
+    ver=$(apt-cache madison "$1" 2>/dev/null | awk -v v="$2" '!found && $3 ~ ("^" v "-") { found = $3 } END { print found }')
+    if [[ -n $ver ]]; then echo "$1=$ver"; else echo "$1"; fi
+}
+# Packages that provide NVML and nvidia-smi for the loaded driver – works for every driver branch/version.
+nvml_packages() {
+    local version major suffix="" p
+    version=$(nv_driver_version); major=${version%%.*}
+    case "$FAMILY" in
+        debian)
+            # Ubuntu/Mint/Pop: libnvidia-compute-<branch>[-server] + nvidia-utils-<branch>[-server], pinned to the
+            # exact version of the loaded module; Debian: libnvidia-ml1 + nvidia-smi (versioned with nvidia-driver).
+            if [[ -n $major ]] && [[ $(dpkg-query -W -f='${Package} ${Status}\n' "*nvidia*-$major-server" 2>/dev/null || true) == *"install ok installed"* ]]; then
+                suffix="-server"
+            fi
+            if [[ -n $major ]] && apt-cache show "libnvidia-compute-$major$suffix" >/dev/null 2>&1; then
+                for p in "libnvidia-compute-$major$suffix" "nvidia-utils-$major$suffix"; do
+                    apt-cache show "$p" >/dev/null 2>&1 && apt_exact "$p" "$version"
+                done
+            else
+                for p in libnvidia-ml1 nvidia-smi; do apt_exact "$p" "$version"; done
+            fi ;;
+        fedora) echo "xorg-x11-drv-nvidia-cuda-libs xorg-x11-drv-nvidia-cuda" ;;   # RPM Fusion, same version as the driver
+        arch) echo "nvidia-utils" ;;   # legacy branches (nvidia-470xx-utils …) come from the AUR
+        suse)
+            if [[ -n $major && $major -lt 500 ]]; then echo "nvidia-compute-G05 nvidia-compute-utils-G05"
+            else echo "nvidia-compute-G06 nvidia-compute-utils-G06"; fi ;;
+    esac
+}
+nvml_matches() { [[ -z $(nvml_version) || $(nvml_version) == "$(nv_driver_version)" ]]; }
+
 if [[ $SETUP_HARDWARE -eq 1 ]]; then
     step "Detecting mainboard sensors (sensors-detect)"
     BEFORE=$(pwm_count)
@@ -364,35 +519,62 @@ if [[ $SETUP_HARDWARE -eq 1 ]]; then
             | grep -oE '^(modprobe )?[a-z0-9_-]+$' | sed 's/^modprobe //' | grep -vE '^(cut|chip)$' | sort -u || true)
         for m in "${DETECTED[@]}"; do load_module "$m" || warn "Driver $m could not be loaded"; done
         [[ ${#DETECTED[@]} -eq 0 ]] && warn "sensors-detect did not suggest any chip drivers"
-        if grep -q "ITE" "$DETECT_LOG" && ! grep -qsx 'it87' /sys/class/hwmon/*/name; then
-            ITE_UNSUPPORTED=1
-        fi
     else
         warn "sensors-detect not found (package lm-sensors)"
     fi
 
-    # Known conflicts with ACPI: it87/nct6775 are not loaded then.
-    if dmesg 2>/dev/null | grep -iE "(it87|nct6775).*(resource conflict|ACPI)" >/dev/null; then
-        CONFLICT=1
+    # Super-I/O chip as reported by sensors-detect, e.g. "IT8613E". "to-be-written" or an unknown ID means
+    # the chip is too new for the kernel's own driver.
+    ITE_CHIP=""
+    if [[ -n ${DETECT_LOG:-} && -f $DETECT_LOG ]]; then
+        ITE_CHIP=$(awk '/Trying family .ITE.*Yes/ { getline
+            if (match($0, /IT ?8[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][A-Z]?/)) { s = substr($0, RSTART, RLENGTH); gsub(/ /, "", s); print s; exit }
+            if (match($0, /ID 0x8[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]/)) { print "IT" substr($0, RSTART + 5, 4); exit } }' "$DETECT_LOG")
     fi
-    if [[ ${ITE_UNSUPPORTED:-0} -eq 1 || ( ${CONFLICT:-0} -eq 1 && $(pwm_count) -eq 0 ) ]]; then
-        warn "ITE chip found, but not supported or blocked by ACPI."
-        if [[ $IT87_DKMS == yes ]] || ask "Install the current it87 driver (github.com/frankcrawford/it87) via DKMS?" n; then
-            if install_role dkms "Build tools and kernel headers"; then
-                rm -rf /usr/src/it87-fancontrol-linux
-                if git clone --depth 1 https://github.com/frankcrawford/it87 /usr/src/it87-fancontrol-linux >>"$LOG" 2>&1 \
-                    && (cd /usr/src/it87-fancontrol-linux && ./dkms-install.sh) >>"$LOG" 2>&1; then
-                    ok "it87 installed via DKMS"
-                    echo "options it87 ignore_resource_conflict=1" > /etc/modprobe.d/fancontrol-linux-it87.conf
-                    record /etc/modprobe.d/fancontrol-linux-it87.conf
-                    modprobe -r it87 >>"$LOG" 2>&1 || true
-                    load_module it87 || hint "it87 does not load yet – check again after a reboot"
+    BOARD_VENDOR=$(dmi board_vendor)
+
+    step "Checking for known problems"
+    NEED_IT87=0
+    if [[ -n $ITE_CHIP ]] && ! has_ite_hwmon; then
+        if ! load_it87; then
+            NEED_IT87=1
+            warn "Mainboard chip ITE $ITE_CHIP: the kernel's it87 driver ($(uname -r)) does not support it yet."
+        fi
+    elif [[ -z $ITE_CHIP && $(pwm_count) -eq 0 && ${BOARD_VENDOR,,} =~ (biostar|gigabyte|asrock) ]]; then
+        if ! load_it87; then
+            NEED_IT87=1
+            warn "No fan controller found. $BOARD_VENDOR boards usually have ITE chips that need a newer it87 driver."
+        fi
+    fi
+    if [[ $NEED_IT87 -eq 1 ]]; then
+        if [[ $IT87_DKMS == yes ]] || ask "Install the newer it87 driver (github.com/frankcrawford/it87, via DKMS)? Recommended" y; then
+            if install_it87_dkms; then
+                if load_it87; then ok "Mainboard fans are now available"
+                elif secure_boot; then enroll_mok
                 else
-                    hint "DKMS installation of it87 failed (details: $LOG)"
+                    hint "it87 is installed but does not load yet – reboot once (details: sudo dmesg | grep it87)"
+                    REBOOT=1
                 fi
             fi
         else
-            hint "For ITE chips: sudo ./install.sh --it87-dkms, or the kernel parameter acpi_enforce_resources=lax"
+            hint "ITE chip${ITE_CHIP:+ $ITE_CHIP}: 'sudo ./install.sh --it87-dkms' installs the newer driver"
+        fi
+    elif [[ -n $ITE_CHIP ]]; then
+        ok "Mainboard chip ITE $ITE_CHIP is supported"
+    fi
+
+    # ACPI claims the I/O range of the sensor chip (common with Nuvoton chips on MSI/ASRock boards).
+    if [[ $NEED_IT87 -eq 0 && $(pwm_count) -eq 0 ]] && ! grep -w acpi_enforce_resources=lax /proc/cmdline >/dev/null \
+        && dmesg 2>/dev/null | grep -iE "(it87|nct6775|nct6683|w83627|f71882).*(resource conflict|ACPI)" >/dev/null; then
+        warn "The mainboard sensor chip is blocked by an ACPI resource conflict."
+        if ask_boot "Add the kernel parameter acpi_enforce_resources=lax (the usual fix, active after a reboot)?"; then
+            if add_kernel_param acpi_enforce_resources=lax; then
+                hint "Kernel parameter acpi_enforce_resources=lax added – the mainboard fans appear after a reboot"
+            else
+                hint "The kernel parameter could not be added automatically – add acpi_enforce_resources=lax in your boot loader"
+            fi
+        else
+            hint "ACPI conflict: the kernel parameter acpi_enforce_resources=lax usually helps (run sudo ./install.sh interactively to add it)"
         fi
     fi
 
@@ -413,6 +595,7 @@ if [[ $SETUP_HARDWARE -eq 1 ]]; then
                     echo "options thinkpad_acpi fan_control=1" > /etc/modprobe.d/fancontrol-linux-thinkpad.conf
                     record /etc/modprobe.d/fancontrol-linux-thinkpad.conf
                     hint "ThinkPad: fan control becomes active after a reboot"
+                    REBOOT=1
                 fi
             fi ;;
     esac
@@ -427,14 +610,55 @@ if [[ $SETUP_HARDWARE -eq 1 ]]; then
     step "Graphics cards"
     GPUS=$(lspci -nn 2>/dev/null | grep -E '\[03[0-9a-f]{2}\]' || true)
     if grep -q '\[10de:' <<<"$GPUS"; then
-        if [[ -d /sys/module/nvidia ]]; then
-            if ldconfig -p 2>/dev/null | grep 'libnvidia-ml.so.1' >/dev/null; then
-                ok "NVIDIA: driver and NVML present – fans controllable"
+        if [[ -d /sys/module/nvidia ]] || modinfo nvidia >/dev/null 2>&1; then
+            NV_VERSION=$(nv_driver_version)
+            if [[ -d /sys/module/nvidia ]]; then
+                echo "  NVIDIA driver: ${NV_VERSION:-unknown version} (loaded)"
             else
-                hint "NVIDIA: libnvidia-ml is missing (part of the NVIDIA driver package, e.g. libnvidia-compute-* / nvidia-utils)"
+                echo "  NVIDIA driver: ${NV_VERSION:-unknown version} (installed, not loaded yet)"
+                hint "NVIDIA: driver $NV_VERSION is installed but not loaded – reboot once"
+                REBOOT=1
+            fi
+            if ! have_nvml || ! nvml_matches; then
+                if have_nvml; then
+                    warn "NVIDIA: NVML $(nvml_version) does not match the loaded driver $NV_VERSION"
+                else
+                    warn "NVIDIA: the driver is loaded, but NVML (libnvidia-ml) is missing"
+                fi
+                if nv_runfile; then
+                    warn "NVIDIA: the driver was installed with NVIDIA's .run installer – no distribution packages are added"
+                elif [[ $INSTALL_DEPS -eq 1 && -n $(nvml_packages) ]]; then
+                    echo "  Installing matching packages: $(nvml_packages | xargs)"
+                    # shellcheck disable=SC2046
+                    pm_install $(nvml_packages) || true
+                fi
+            fi
+            if ! have_nvml; then
+                if nv_runfile; then
+                    hint "NVIDIA: NVML is missing – run NVIDIA's .run installer of version $NV_VERSION again"
+                else
+                    hint "NVIDIA: install NVML/nvidia-utils of driver $NV_VERSION from your distribution (package names: $(nvml_packages | xargs))"
+                fi
+            elif ! nvml_matches; then
+                hint "NVIDIA: driver $NV_VERSION is loaded, but NVML $(nvml_version) is installed – reboot so both match (otherwise NVML reports a version mismatch)"
+                REBOOT=1
+            else
+                ok "NVIDIA: driver $NV_VERSION and NVML $(nvml_version) match – fans controllable"
+            fi
+        elif command -v ubuntu-drivers >/dev/null && [[ $INSTALL_DEPS -eq 1 ]]; then
+            warn "NVIDIA: the proprietary driver is not in use – only it can control the fans"
+            if ask_boot "Install the recommended NVIDIA driver now (ubuntu-drivers install, active after a reboot)?"; then
+                if ubuntu-drivers install >>"$LOG" 2>&1; then
+                    hint "NVIDIA: driver installed – the graphics card fans can be controlled after a reboot"
+                    REBOOT=1
+                else
+                    hint "NVIDIA: driver installation failed (details: $LOG)"
+                fi
+            else
+                hint "NVIDIA: install the proprietary driver for fan control (sudo ubuntu-drivers install)"
             fi
         elif [[ -d /sys/module/nouveau ]]; then
-            hint "NVIDIA: the free nouveau driver can hardly control fans. Install the proprietary driver (Ubuntu: sudo ubuntu-drivers install)."
+            hint "NVIDIA: the free nouveau driver can hardly control fans – install the proprietary NVIDIA driver of your distribution."
         else
             hint "NVIDIA: no driver loaded"
         fi
@@ -450,7 +674,7 @@ if [[ $SETUP_HARDWARE -eq 1 ]]; then
                 if [[ $AMD_OVERDRIVE == yes ]] || ask "Enable overdrive? (kernel option, new initramfs, then reboot; the kernel then reports itself as 'tainted')" n; then
                     echo "options amdgpu ppfeaturemask=0xffffffff" > /etc/modprobe.d/fancontrol-linux-amdgpu.conf
                     record /etc/modprobe.d/fancontrol-linux-amdgpu.conf
-                    if regen_initramfs; then hint "AMD: overdrive active after the next reboot"
+                    if regen_initramfs; then hint "AMD: overdrive active after the next reboot"; REBOOT=1
                     else hint "AMD: the initramfs could not be regenerated – please do it manually (details: $LOG)"; fi
                 else
                     hint "AMD RDNA3/4: sudo ./install.sh --amd-overdrive enables fan control"
@@ -472,7 +696,8 @@ if [[ $SETUP_HARDWARE -eq 1 ]]; then
         ok "Drivers are loaded automatically at boot ($CONF)"
     fi
     AFTER=$(pwm_count)
-    echo "  Controllable mainboard/GPU outputs (hwmon): before $BEFORE, now $AFTER"
+    echo "  Controllable fan outputs via hwmon (mainboard, AMD graphics): before $BEFORE, now $AFTER"
+    if grep -q '\[10de:' <<<"$GPUS"; then echo "  (NVIDIA fans are controlled through NVML and are not counted here)"; fi
 fi
 
 # The tray under GNOME needs the AppIndicator extension.
@@ -537,6 +762,9 @@ fi
 echo "${G}Done.${N} Start 'LiFaCo' from the application menu or with: lifaco"
 echo "Log: $LOG"
 echo "Update later with: sudo lifaco-upgrade"
+if [[ $REBOOT -eq 1 ]]; then
+    echo "${B}IMPORTANT:${N} please reboot once so the new drivers/settings become active."
+fi
 if [[ $RELOGIN -eq 1 ]]; then
     echo "${B}IMPORTANT:${N} '$TARGET_USER' was added to the group 'fancontrol' – please log out and back in once."
 fi

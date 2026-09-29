@@ -172,9 +172,10 @@ The installer detects the distribution and the init system and takes care of:
    into a private Python environment.
 2. Hardware:
    - `sensors-detect --auto`; the drivers it finds are loaded and made permanent in `/etc/modules-load.d/`
+   - known problems are fixed directly (see [below](#known-problems-the-installer-fixes))
    - vendor modules for Dell, ASUS and ThinkPad
    - checks for NVIDIA (NVML) and Intel Arc
-   - AMD RDNA3/4 overdrive and the it87 DKMS driver are offered on request
+   - AMD RDNA3/4 overdrive is offered on request
 3. Program in `/usr/local/lib/fancontrol-linux`, commands in `/usr/local/bin` (`lifaco`, `lifacoctl`,
    `lifaco-upgrade`; the older names `fancontrol-linux*` keep working), an entry in the application menu.
 4. Creates the group `fancontrol` and adds you to it. **Log out and back in once afterwards.**
@@ -212,15 +213,29 @@ This installs LiFaCo, which fetches all further updates from this repository (`s
 `lifaco*` commands. Configuration and profiles are kept – the technical names (service `fancontrol-linux`, group
 `fancontrol`, paths) did not change.
 
-### No mainboard fans found?
+### Known problems the installer fixes
 
-The installer tries to handle this automatically. If it still does not work:
+The installer recognises common problems and fixes them directly (a summary at the end says if a reboot is needed):
 
-- `/var/log/fancontrol-linux-sensors-detect.log` shows which chip was found.
-- ITE chips (common on Gigabyte, BIOSTAR, ASRock): `sudo ./install.sh --it87-dkms` installs the current
-  [it87 driver](https://github.com/frankcrawford/it87).
-- If `sudo dmesg` reports an ACPI resource conflict, the kernel parameter `acpi_enforce_resources=lax` helps.
-- Then: `sudo systemctl restart fancontrol-linux` (or "Rescan hardware" in the user interface).
+- **Newer ITE chips** (typical for BIOSTAR, Gigabyte, ASRock – e.g. IT8613E, IT8686E, IT8688E, IT8689E) that the
+  kernel's own `it87` driver does not support yet: the newer [it87 driver](https://github.com/frankcrawford/it87)
+  is built and installed via DKMS (also with `--yes`), and loaded with `ignore_resource_conflict=1`. DKMS rebuilds
+  it for every new kernel. With **Secure Boot** it offers to register the signing key (MOK).
+- **ACPI resource conflict** (the sensor chip is blocked, common with Nuvoton chips): it offers to add the kernel
+  parameter `acpi_enforce_resources=lax` (GRUB, grubby or kernelstub; `uninstall.sh` removes it again).
+- **NVIDIA:** it checks which driver version is installed and loaded (e.g. 595.91.07) and installs the NVML
+  library and `nvidia-utils` of exactly that version (Ubuntu: `libnvidia-compute-<branch>`/`nvidia-utils-<branch>`,
+  also `-server`; Debian, Fedora/RPM Fusion, Arch and openSUSE with their package names). If driver and library
+  versions differ it asks for a reboot. Drivers installed with NVIDIA's `.run` installer are left alone. Without the
+  proprietary driver it offers `ubuntu-drivers install` on Ubuntu.
+- AMD RDNA3/4 overdrive, ThinkPad fan control, Dell and ASUS modules (see above).
+
+Boot changes (kernel parameters, graphics drivers) are only made when you confirm them at the terminal, never
+with `--yes`.
+
+If the mainboard fans are still missing: `/var/log/fancontrol-linux-sensors-detect.log` shows which chip was
+found, and `sudo dmesg | grep -iE "it87|nct67"` shows why its driver did not load. After fixing it:
+`sudo systemctl restart fancontrol-linux` (or "Rescan hardware" in the user interface).
 
 ## Command line
 

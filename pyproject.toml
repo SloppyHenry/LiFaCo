@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fancontrol-linux"
+version = "2.0.0"
+description = "LiFaCo: fan control for Linux (hwmon, NVIDIA, AMD, liquidctl)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+classifiers = [
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+]
+# The GUI needs PyGObject (GTK 4 / libadwaita), which comes from the distribution, not from PyPI.
+dependencies = []
+
+[project.optional-dependencies]
+liquidctl = ["liquidctl"]
+dev = ["pytest", "pytest-cov", "ruff", "mypy"]
+
+[project.scripts]
+fancontrol-linuxd = "fancontrol_linux.daemon:main"
+fancontrol-linuxctl = "fancontrol_linux.cli:main"
+fancontrol-linux = "fancontrol_linux.gui.app:main"
+
+[tool.setuptools.packages.find]
+include = ["fancontrol_linux*"]
+
+[tool.setuptools.package-data]
+"fancontrol_linux.gui" = ["icons/**/*.svg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "BLE"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+check_untyped_defs = false

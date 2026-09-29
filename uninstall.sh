@@ -55,8 +55,31 @@ if [[ $REGEN -eq 1 ]]; then
     elif command -v mkinitcpio >/dev/null; then mkinitcpio -P
     fi || echo "Note: please regenerate the initramfs so the AMD overdrive option is dropped."
 fi
-if [[ -d /usr/src/it87-fancontrol-linux ]]; then
-    echo "Note: the it87 driver installed via DKMS is kept (remove it: sudo dkms remove it87/<version> --all)."
+# Kernel parameters added by the installer (e.g. acpi_enforce_resources=lax).
+if [[ -f $STATE_DIR/kernel-params ]]; then
+    while read -r param; do
+        [[ -n $param ]] || continue
+        if command -v grubby >/dev/null; then
+            grubby --update-kernel=ALL --remove-args="$param" || true
+        elif [[ -f /etc/default/grub ]]; then
+            sed -i -E "/^GRUB_CMDLINE_LINUX_DEFAULT=/ { s/ $param([\" ])/\1/; s/\"$param /\"/; s/\"$param\"/\"\"/ }" /etc/default/grub
+            REGEN_GRUB=1
+        elif command -v kernelstub >/dev/null; then
+            kernelstub -d "$param" || true
+        fi
+        echo "Kernel parameter removed: $param (active after a reboot)"
+    done < "$STATE_DIR/kernel-params"
+    if [[ ${REGEN_GRUB:-0} -eq 1 ]]; then
+        if command -v update-grub >/dev/null; then update-grub
+        elif command -v grub2-mkconfig >/dev/null; then grub2-mkconfig -o "$( [[ -d /boot/grub2 ]] && echo /boot/grub2/grub.cfg || echo /boot/grub/grub.cfg )"
+        elif command -v grub-mkconfig >/dev/null; then grub-mkconfig -o /boot/grub/grub.cfg
+        fi || echo "Note: please regenerate the GRUB configuration."
+    fi
+    rm -f "$STATE_DIR/kernel-params" /etc/default/grub.fancontrol-linux.bak
+fi
+if [[ $(dkms status -m it87 2>/dev/null || true) == *it87* ]]; then
+    echo "Note: the it87 driver installed via DKMS is kept, because the mainboard fans need it"
+    echo "      (remove it: sudo dkms remove it87/<version> --all, see: dkms status it87)."
 fi
 
 if [[ $PURGE -eq 1 ]]; then

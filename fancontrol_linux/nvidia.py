@@ -5,6 +5,13 @@ import shutil
 import subprocess
 
 NVML_SUCCESS = 0
+# nvmlInit errors that users can fix themselves.
+NVML_INIT_ERRORS = {
+    4: "no permission to access the NVIDIA driver",
+    9: "the NVIDIA kernel driver is not loaded",
+    12: "NVML library not found",
+    18: "driver/library version mismatch – NVML and the loaded driver differ, reboot after a driver update",
+}
 
 
 class _FanSpeedInfo(ctypes.Structure):
@@ -13,6 +20,7 @@ class _FanSpeedInfo(ctypes.Structure):
 
 class Nvml:
     _instance = None
+    error = ""   # why NVML is not available (for the hardware overview)
 
     @classmethod
     def get(cls):
@@ -20,14 +28,19 @@ class Nvml:
         if cls._instance is None:
             try:
                 cls._instance = cls()
-            except OSError:
+            except OSError as e:
                 cls._instance = False
+                cls.error = str(e)
         return cls._instance or None
 
     def __init__(self):
-        self.lib = ctypes.CDLL("libnvidia-ml.so.1")
-        if self.lib.nvmlInit_v2() != NVML_SUCCESS:
-            raise OSError("nvmlInit failed")
+        try:
+            self.lib = ctypes.CDLL("libnvidia-ml.so.1")
+        except OSError:
+            raise OSError("NVML not found (libnvidia-ml.so.1)") from None
+        rc = self.lib.nvmlInit_v2()
+        if rc != NVML_SUCCESS:
+            raise OSError(f"NVML: {NVML_INIT_ERRORS.get(rc, f'initialisation failed (error {rc})')}")
 
     def _call(self, name, *args):
         fn = getattr(self.lib, name, None)

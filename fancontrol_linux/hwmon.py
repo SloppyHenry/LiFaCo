@@ -301,8 +301,12 @@ class Hardware:
                 "name": "NVIDIA",
                 "state": "ok" if nvml else "warn",
                 "detail": f"NVML active – {len(nv_out)} controllable fans" if nvml else
-                          ("nouveau driver (hardly any fan control)" if "nouveau" in chips else "NVML not found"),
-                "hint": "" if nvml else "Install the proprietary NVIDIA driver (it includes libnvidia-ml).",
+                          ("nouveau driver (hardly any fan control)" if "nouveau" in chips
+                           else nvidia.Nvml.error or "NVML not found"),
+                "hint": "" if nvml else ("Reboot so the NVIDIA driver and NVML have the same version."
+                                         if "mismatch" in nvidia.Nvml.error else
+                                         "Install the NVML library matching your NVIDIA driver (sudo ./install.sh "
+                                         "does this automatically)."),
             })
         for key, state in self.amd_od.items():
             rows.append({
