@@ -47,6 +47,10 @@ SETTINGS_PAGES = (
 )
 # Names used by older code paths and keyboard shortcuts.
 PAGE_ALIASES = {"controls": "fans", "design": "appearance", "settings": "general"}
+# run-demo.sh: simulated hardware. A separate application ID keeps the demo from taking over the real app
+# (GTK would otherwise hand a normal start from the menu to the running demo window).
+DEMO = bool(os.environ.get("FANCONTROL_DEMO"))
+
 SHORTCUTS = [
     ("<Control>1 … <Control>4", "Fans, Curves, Light, Settings"),
     ("<Control>r", "Rescan hardware"),
@@ -65,7 +69,7 @@ SHORTCUTS = [
 
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="LiFaCo", default_width=1280, default_height=860)
+        super().__init__(application=app, title="LiFaCo (demo)" if DEMO else "LiFaCo", default_width=1280, default_height=860)
         self.app = app
         self.prefs = GuiPrefs()
         set_fahrenheit(self.prefs.get("fahrenheit"))
@@ -112,7 +116,8 @@ class MainWindow(Adw.ApplicationWindow):
         title.append(Gtk.Image(icon_name=APP_ID, pixel_size=36))
         names = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
         names.append(Gtk.Label(label="LiFaCo", xalign=0, css_classes=["fc-app-title"]))
-        names.append(Gtk.Label(label="Cool. Quiet. In control.", xalign=0, css_classes=["fc-app-subtitle"]))
+        names.append(Gtk.Label(label="Demo – simulated hardware" if DEMO else "Cool. Quiet. In control.", xalign=0,
+                               css_classes=["fc-app-subtitle"]))
         title.append(names)
         header.pack_start(title)
 
@@ -428,7 +433,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.banner.set_button_label(label)
         self.banner.set_revealed(True)
         if self.tray:
-            self.tray.set_main_tooltip("LiFaCo", "Service unreachable")
+            self.tray.set_main_tooltip(self.get_title(), "Service unreachable")
 
     def toast(self, message):
         self.toasts.add_toast(Adw.Toast(title=GLib.markup_escape_text(str(message)), timeout=5))
@@ -491,7 +496,7 @@ class MainWindow(Adw.ApplicationWindow):
                              + (f" · {fmt_rpm(rpm)}" if rpm is not None else ""))
         if st.get("safety_active"):
             lines.insert(0, "⚠ Safety temperature reached")
-        self.tray.set_main_tooltip(f"LiFaCo – {st.get('profile') or ''}",
+        self.tray.set_main_tooltip(f"{self.get_title()} – {st.get('profile') or ''}",
                                    "\n".join(lines) or "No fans controlled")
         entries = []
         for entry in self.prefs.get("tray_sensors") or []:
@@ -930,7 +935,7 @@ class MainWindow(Adw.ApplicationWindow):
 
 class FanControlApp(Adw.Application):
     def __init__(self):
-        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        super().__init__(application_id=APP_ID + ".Demo" if DEMO else APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.start_hidden = False
         self.add_main_option("hidden", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
                              "Start in the tray only, without a window", None)

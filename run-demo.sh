@@ -8,6 +8,7 @@ export FANCONTROL_HWMON_ROOT="$DEMO/hwmon"
 export FANCONTROL_CONFIG_DIR="$DEMO/config"
 export FANCONTROL_SOCKET="$DEMO/daemon.sock"
 export FANCONTROL_NO_NVIDIA=1
+export FANCONTROL_DEMO=1   # own application ID and a "Demo" label, so it never replaces the real app
 export FANCONTROL_FILE_SENSOR_DIRS="$DEMO/sensors"
 mkdir -p "$DEMO/sensors"
 echo 42.0 > "$DEMO/sensors/beispiel.sensor"
