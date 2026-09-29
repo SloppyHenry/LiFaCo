@@ -175,6 +175,9 @@ class MainWindow(Adw.ApplicationWindow):
         self.rebuild()
         self._poll()
         self.poll_source = GLib.timeout_add(1000, self._poll)
+        # Coming back from the tray or from being minimised: show current values right away.
+        for prop in ("notify::visible", "notify::suspended"):
+            self.connect(prop, lambda *_: None if self._hidden() else self._poll())
 
     def _setup_actions(self):
         actions = {
@@ -329,11 +332,13 @@ class MainWindow(Adw.ApplicationWindow):
         self.settings_view.select(page)
         self.stack.set_visible_child_name("settings")
         self.nav.highlight("settings")
+        self.update_visible()
 
     def close_settings(self):
         self.in_settings = False
         self.stack.set_visible_child_name("main")
         self.nav.highlight(self.current_section)
+        self.update_visible()
 
     def _section_scrolled(self, name):
         self.current_section = name
@@ -364,9 +369,29 @@ class MainWindow(Adw.ApplicationWindow):
                   on_error=lambda e: self.toast(f"Not applied: {e}"))
         return False
 
+    def update_visible(self):
+        """Live values only for what is on screen – every changed value costs a redraw (and some an animation)."""
+        if not getattr(self, "status", None) or self._hidden():   # also called while the window is being built
+            return
+        self._update_stats()
+        if not self.in_settings:
+            self.controls_page.update_live()
+            self.curves_page.update_live()
+        elif self.settings_view.stack.get_visible_child_name() == "sensors":
+            self.sensors_page.update_live()
+
+    def _hidden(self):
+        """Window closed to the tray or minimised: nothing on screen needs live values."""
+        return not self.get_visible() or self.is_suspended()
+
     def _poll(self):
         if self.polling:
             return True
+        if self._hidden() and self.status is not None:
+            # Only the tray needs values: value icons every 2 s, otherwise just the tooltip every 5 s.
+            self.hidden_polls = getattr(self, "hidden_polls", 0) + 1
+            if self.hidden_polls % (2 if self.prefs.get("tray_sensors") else 5):
+                return True
         self.polling = True
         need_config = self.config is None
         now = GLib.get_monotonic_time()
@@ -400,10 +425,7 @@ class MainWindow(Adw.ApplicationWindow):
             rebuild = True
         if rebuild:
             self.rebuild()
-        self.controls_page.update_live()
-        self.curves_page.update_live()
-        self.sensors_page.update_live()
-        self._update_stats()
+        self.update_visible()
         self.safety_banner.set_revealed(bool(status.get("safety_active")))
         if profiles is not None and self.tray:
             self.tray.set_profiles(profiles["profiles"], profiles["active"])

@@ -150,6 +150,7 @@ class SettingsView(Gtk.Box):
 
     def __init__(self, win, pages):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        self.win = win
         bar = Gtk.Box(spacing=12, css_classes=["fc-settings-bar"])
         back = Gtk.Button(child=Adw.ButtonContent(icon_name="go-previous-symbolic", label="Back"),
                           css_classes=["flat"], tooltip_text="Back to the overview")
@@ -171,12 +172,17 @@ class SettingsView(Gtk.Box):
             self.list.append(row)
             self.rows[name] = row
             self.stack.add_named(widget, name)
-        self.list.connect("row-selected", lambda _l, row: row and self.stack.set_visible_child_name(row.page_name))
+        self.list.connect("row-selected", self._selected)
         body.append(self.list)
         body.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         body.append(self.stack)
         self.append(body)
         self.select(pages[0][0])
+
+    def _selected(self, _list, row):
+        if row:
+            self.stack.set_visible_child_name(row.page_name)
+            self.win.update_visible()
 
     def select(self, name):
         if name in self.rows:

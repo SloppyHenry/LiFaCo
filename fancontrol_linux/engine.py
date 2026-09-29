@@ -9,6 +9,11 @@ from .sensors import CustomSensors
 KICK_SECONDS = 2.0
 REASSERT_SECONDS = 5.0
 RESCAN_SECONDS = 60.0
+# Values that only feed the display are read while someone watches (UI/CLI asked for the status recently);
+# sensors that are slow to read (NVML, ACPI thermal zones …) are then refreshed less often than every tick.
+VIEWER_SECONDS = 5.0
+SLOW_READ_SECONDS = 0.0003
+SLOW_REFRESH_SECONDS = 3.0
 STALL_SECONDS = 3.0
 BOOST_STEP = 5.0
 BOOST_EVERY = 2.0
@@ -195,6 +200,9 @@ class Engine:
         self.last_rescan = clock()
         self.safety_active = False
         self.status_cache = {}
+        self.viewer_until = 0.0
+        self._values = {}   # (kind, id) -> (value, time read)
+        self._read_cost = {}   # (kind, id) -> seconds one read took
         self.support = hardware.info() if hasattr(hardware, "info") else []
 
     def set_config(self, config):
@@ -260,6 +268,47 @@ class Engine:
             return converted
         return value
 
+    def watched(self):
+        """Called for every status request: display values are kept fresh for a while."""
+        self.viewer_until = self.clock() + VIEWER_SECONDS
+
+    def _read(self, kind, readers, needed, viewing, now):
+        """Read what the control needs every tick; display-only values only while watched, slow ones less often."""
+        result = {}
+        for sid, read in readers.items():
+            key = (kind, sid)
+            cached = self._values.get(key)
+            if cached is None or sid in needed:
+                fresh = True
+            elif not viewing:
+                fresh = False
+            else:
+                fresh = self._read_cost.get(key, 0.0) < SLOW_READ_SECONDS or now - cached[1] >= SLOW_REFRESH_SECONDS
+            if fresh:
+                started = time.perf_counter()
+                value = read()
+                self._read_cost[key] = time.perf_counter() - started
+                cached = self._values[key] = (value, now)
+            result[sid] = cached[0]
+        return result
+
+    def _needed(self, cfg):
+        """Temperatures and fan speeds the control itself uses (curves, custom sensors, start assist)."""
+        temps = set(referenced_sensors(cfg["curves"]))
+        for sensor in cfg["custom_sensors"]:
+            temps.update(sensor.get("sensors") or [])
+            if sensor.get("sensor"):
+                temps.add(sensor["sensor"])
+        fans = set()
+        for ctl in cfg["controls"]:
+            pwm = self.hw.pwms.get(ctl["id"])
+            calibrated = ctl.get("calibration") and any(r > 0 for _p, r in ctl["calibration"]["rpm_curve"])
+            if ctl["enabled"] and calibrated and pwm is not None:
+                fans.add(ctl.get("fan") or pwm.default_fan)
+        if self.calibration and self.calibration.running:
+            fans.update(self.hw.fans)
+        return temps, fans
+
     def tick(self):
         now = self.clock()
         dt = 0.0 if self.last_tick is None else max(0.0, now - self.last_tick)
@@ -268,8 +317,10 @@ class Engine:
             self.rescan(full=False)
 
         cfg = self.config
-        temps = self.hw.read_temps()
-        fans = self.hw.read_fans()
+        viewing = now < self.viewer_until
+        need_temps, need_fans = self._needed(cfg)
+        temps = self._read("temp", {sid: s.read for sid, s in self.hw.temps.items()}, need_temps, viewing, now)
+        fans = self._read("fan", {sid: s.read for sid, s in self.hw.fans.items()}, need_fans, viewing, now)
         custom = self.custom.evaluate(cfg["custom_sensors"], temps, now)
         all_temps = {**temps, **custom}
         previous = {}
@@ -332,7 +383,14 @@ class Engine:
             self._write(pwm, state, round(applied, 1), now, ctl["force_apply"])
             state.error = state.error or error
 
-        self.status_cache = self._build_status(all_temps, custom, fans, outputs)
+        # Duty cycle for the display: what we wrote ourselves, otherwise read (display only).
+        own = {pid: self.controls[pid].written for pid, pwm in self.hw.pwms.items()
+               if pid in self.controls and self.controls[pid].written is not None
+               and not (self.controls[pid].written <= 0 and pwm.pwm_path is None)}   # 0 % = GPU driver decides
+        percents = self._read("pwm", {pid: pwm.read_percent for pid, pwm in self.hw.pwms.items() if pid not in own},
+                              set(), viewing, now)
+        percents.update(own)
+        self.status_cache = self._build_status(all_temps, custom, fans, outputs, percents)
         return self.status_cache
 
     def _stall_boost(self, ctl, pwm, state, applied, fans, now):
@@ -355,7 +413,7 @@ class Engine:
             return max(applied, min(100.0, ctl["start_percent"] + state.boost))
         return applied
 
-    def _build_status(self, temps, custom, fans, outputs):
+    def _build_status(self, temps, custom, fans, outputs, percents):
         labels = self.hw.temp_labels()
         custom_names = {f"custom:{s['id']}": s["name"] for s in self.config["custom_sensors"]}
         names = dict(self.config.get("sensor_names", {}))
@@ -367,7 +425,7 @@ class Engine:
             pwms[pid] = {
                 "label": pwm.label,
                 "name": names.get(pid, ""),
-                "percent": pwm.read_percent(),
+                "percent": percents.get(pid),
                 "controlled": pwm.controlled,
                 "target": _finite(state.target),
                 "default_fan": pwm.default_fan,

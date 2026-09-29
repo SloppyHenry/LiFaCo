@@ -3,8 +3,10 @@
 import ctypes
 import shutil
 import subprocess
+import time
 
 NVML_SUCCESS = 0
+REASSERT_SECONDS = 5.0
 # nvmlInit errors that users can fix themselves.
 NVML_INIT_ERRORS = {
     4: "no permission to access the NVIDIA driver",
@@ -152,6 +154,7 @@ class NvidiaFanOutput:
         self.min_percent, self.max_percent = nvml.fan_limits(handle)
         self._taken = False
         self._auto = False
+        self._last = None   # (whole percent, time) of the last write: NVML only takes whole percent
 
     @property
     def controlled(self):
@@ -171,9 +174,15 @@ class NvidiaFanOutput:
             if not self._auto:
                 self.nvml.set_default(self.handle, self.fan)
                 self._auto = True
+                self._last = None
             return
         self._auto = False
-        self.nvml.set_fan(self.handle, self.fan, max(self.min_percent, min(self.max_percent, percent)))
+        value = int(round(max(self.min_percent, min(self.max_percent, percent))))
+        now = time.monotonic()
+        if self._last and self._last[0] == value and now - self._last[1] < REASSERT_SECONDS:
+            return
+        self.nvml.set_fan(self.handle, self.fan, value)
+        self._last = (value, now)
 
     def restore(self):
         if not self._taken:
@@ -184,6 +193,7 @@ class NvidiaFanOutput:
             pass
         self._taken = False
         self._auto = False
+        self._last = None
 
 
 def scan(temps, fans, outputs):

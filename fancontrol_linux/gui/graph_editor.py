@@ -95,7 +95,8 @@ class GraphEditor(Gtk.Widget):
         return f"{c_to_disp(t):.{digits}f} {temp_unit()}"
 
     def set_live(self, temp, output):
-        live = None if temp is None or output is None else (temp, output)
+        # Rounded to what can be seen (well below a pixel), so tiny sensor changes do not redraw the chart.
+        live = None if temp is None or output is None else (round(temp * 5) / 5, round(output * 2) / 2)
         if live != self.live:
             self.live = live
             self.queue_draw()

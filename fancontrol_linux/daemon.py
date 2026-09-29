@@ -44,7 +44,10 @@ class Daemon:
         return {"version": __version__}
 
     def cmd_status(self, _):
-        return self.engine.status_cache or self.engine.tick()
+        idle = self.engine.clock() >= self.engine.viewer_until
+        self.engine.watched()
+        # After a quiet phase the cached status lacks fresh display values – measure once right away.
+        return self.engine.tick() if idle or not self.engine.status_cache else self.engine.status_cache
 
     def cmd_get_config(self, _):
         return self.engine.config
