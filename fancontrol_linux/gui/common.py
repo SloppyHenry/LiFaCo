@@ -12,6 +12,35 @@ CARD_WIDTH = 300
 CARD_MAX_WIDTH = 300
 
 
+def notice(title, icon, markup=None, button=None):
+    """A card with an icon, a title and optional text/button – for empty or unavailable sections."""
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, css_classes=["card", "fc-card", "fc-notice"],
+                  halign=Gtk.Align.FILL)
+    head = Gtk.Box(spacing=10)
+    head.append(icon_bubble(icon))
+    head.append(Gtk.Label(label=title, xalign=0, wrap=True, hexpand=True, css_classes=["fc-card-title"],
+                          valign=Gtk.Align.CENTER))
+    box.append(head)
+    if markup:
+        label = Gtk.Label(xalign=0, wrap=True, css_classes=["fc-caption"])
+        label.set_markup(markup)
+        box.append(label)
+    if button:
+        text, callback = button
+        b = Gtk.Button(label=text, halign=Gtk.Align.START, css_classes=["pill", "suggested-action"])
+        b.connect("clicked", lambda *_: callback())
+        box.append(b)
+    return box
+
+
+def icon_bubble(icon, size=20):
+    """Icon on a round, softly tinted background (tint follows the card colour)."""
+    bubble = Gtk.Box(css_classes=["fc-icon-bubble"], valign=Gtk.Align.CENTER, halign=Gtk.Align.CENTER,
+                     hexpand=False)
+    bubble.append(Gtk.Image(icon_name=icon, pixel_size=size, hexpand=True, halign=Gtk.Align.CENTER))
+    return bubble
+
+
 def status_page(title, description, icon="dialog-information-symbolic", button=None):
     page = Adw.StatusPage(title=title, description=description, icon_name=icon)
     if button:
@@ -45,14 +74,15 @@ class CardFlow(Gtk.FlowBox):
     one card would add space below all of them. Instead every card is clamped to the same width.
     """
 
-    def __init__(self):
-        super().__init__(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False, column_spacing=12,
-                         row_spacing=12, min_children_per_line=1, max_children_per_line=8,
+    def __init__(self, width=CARD_WIDTH):
+        super().__init__(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False, column_spacing=14,
+                         row_spacing=14, min_children_per_line=1, max_children_per_line=8,
                          valign=Gtk.Align.START, css_classes=["fc-cards"])
+        self.width = width
 
     def append(self, widget):
-        widget.set_size_request(CARD_WIDTH, -1)
-        clamp = Adw.Clamp(child=widget, maximum_size=CARD_MAX_WIDTH, tightening_threshold=CARD_MAX_WIDTH,
+        widget.set_size_request(self.width, -1)
+        clamp = Adw.Clamp(child=widget, maximum_size=self.width, tightening_threshold=self.width,
                           valign=Gtk.Align.START)
         super().append(clamp)
 
@@ -155,8 +185,13 @@ def card_menu(card, items):
                           valign=Gtk.Align.CENTER, tooltip_text="More")
 
 
-def card(hidden=False):
+ITEM_COLORS = 8  # number of .fc-color-N classes defined by the theme
+
+
+def card(hidden=False, color_index=None):
     classes = ["card", "fc-card"] + (["fc-hidden"] if hidden else [])
+    if color_index is not None:
+        classes.append(f"fc-color-{color_index % ITEM_COLORS}")
     return Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, width_request=CARD_WIDTH,
                    valign=Gtk.Align.START, css_classes=classes)
 

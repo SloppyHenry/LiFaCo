@@ -56,7 +56,7 @@ python3 -m compileall -q -j0 "$PYLIB" "$APPDIR/usr/lib/python3/dist-packages" "$
 
 install -m 755 /src/packaging/appimage/AppRun "$APPDIR/AppRun"
 sed 's/^Exec=.*/Exec=fancontrol-linux/' /src/data/io.github.fancontrol_linux.desktop > "$APPDIR/io.github.fancontrol_linux.desktop"
-echo "X-AppImage-Name=Linux FanControl" >> "$APPDIR/io.github.fancontrol_linux.desktop"
+echo "X-AppImage-Name=LiFaCo" >> "$APPDIR/io.github.fancontrol_linux.desktop"
 cp /src/data/io.github.fancontrol_linux.svg "$APPDIR/io.github.fancontrol_linux.svg"
 cp /src/data/io.github.fancontrol_linux.svg "$APPDIR/.DirIcon"
 mkdir -p "$APPDIR/usr/share/metainfo"
@@ -67,6 +67,6 @@ mkdir -p "$APPDIR/usr/share/metainfo"
 cd /tmp
 wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
 chmod +x appimagetool-x86_64.AppImage
-ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run -n "$APPDIR" /out/LinuxFanControl-x86_64.AppImage 2>&1 | tail -3
-chown "${HOST_UID:-0}:${HOST_GID:-0}" /out/LinuxFanControl-x86_64.AppImage
-ls -lh /out/LinuxFanControl-x86_64.AppImage
+ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run -n "$APPDIR" /out/LiFaCo-x86_64.AppImage 2>&1 | tail -3
+chown "${HOST_UID:-0}:${HOST_GID:-0}" /out/LiFaCo-x86_64.AppImage
+ls -lh /out/LiFaCo-x86_64.AppImage

@@ -1,4 +1,4 @@
 #!/bin/sh
-# Linux FanControl – background service (runit)
+# LiFaCo – background service (runit)
 mkdir -p /run/fancontrol-linux
 exec /usr/local/bin/fancontrol-linuxd 2>&1

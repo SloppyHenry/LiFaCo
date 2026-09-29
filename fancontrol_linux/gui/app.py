@@ -8,14 +8,16 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gio, GLib, GObject, Gtk  # noqa: E402
 
 from .. import APP_ID  # noqa: E402
 from .. import config as cfgmod  # noqa: E402
 from ..ipc import Client, DaemonUnavailable  # noqa: E402
-from .controls import ControlsPage  # noqa: E402
-from .curves import CurvesPage  # noqa: E402
-from .misc_pages import AboutPage, DesignPage, SettingsPage, TrayPage  # noqa: E402
+from . import common as ui  # noqa: E402
+from .controls import CONTROLS_HELP, ControlsPage  # noqa: E402
+from .curves import CURVES_HELP, CurvesPage  # noqa: E402
+from .layout import MAIN_SECTIONS, LightSection, MainView, NavPanel, SettingsView  # noqa: E402
+from .misc_pages import AboutPage, DesignPage, LedPage, SettingsPage, SupportPage, TrayPage  # noqa: E402
 from .sensors_page import SensorsPage  # noqa: E402
 from .theme import Theme  # noqa: E402
 from .tray import Tray  # noqa: E402
@@ -34,17 +36,19 @@ def _service_missing():
     return not any(os.path.exists(p) for p in SERVICE_FILES)
 
 
-PAGES = (
-    ("controls", "Controls", "fc-gauge-symbolic"),
-    ("curves", "Curves", "fc-curve-symbolic"),
+SETTINGS_PAGES = (
+    ("general", "General", "fc-settings-symbolic"),
+    ("appearance", "Appearance", "fc-palette-symbolic"),
+    ("tray", "Tray icons", "fc-eye-symbolic"),
     ("sensors", "Sensors", "fc-thermometer-symbolic"),
-    ("design", "Design", "fc-palette-symbolic"),
-    ("tray", "Tray", "fc-eye-symbolic"),
-    ("settings", "Settings", "fc-settings-symbolic"),
+    ("leds", "LED devices", "fc-light-symbolic"),
+    ("hardware", "Hardware support", "fc-gauge-symbolic"),
     ("about", "About", "fc-about-symbolic"),
 )
+# Names used by older code paths and keyboard shortcuts.
+PAGE_ALIASES = {"controls": "fans", "design": "appearance", "settings": "general"}
 SHORTCUTS = [
-    ("<Control>1 … <Control>7", "Switch page"),
+    ("<Control>1 … <Control>4", "Fans, Curves, Light, Settings"),
     ("<Control>r", "Rescan hardware"),
     ("<Control>n", "New graph curve"),
     ("<Control>h", "Show/hide hidden cards"),
@@ -52,6 +56,7 @@ SHORTCUTS = [
     ("<Control>o", "Open configuration file"),
     ("<Control><Shift>s", "Save configuration as file"),
     ("<Control>i", "Import from file"),
+    ("F9", "Show/hide the menu"),
     ("F1", "Show keyboard shortcuts"),
     ("<Control>w", "Close window (keeps running in the tray)"),
     ("<Control>q", "Quit"),
@@ -60,7 +65,7 @@ SHORTCUTS = [
 
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="Linux FanControl", default_width=1180, default_height=800)
+        super().__init__(application=app, title="LiFaCo", default_width=1280, default_height=860)
         self.app = app
         self.prefs = GuiPrefs()
         set_fahrenheit(self.prefs.get("fahrenheit"))
@@ -84,58 +89,48 @@ class MainWindow(Adw.ApplicationWindow):
         self.design_page = DesignPage(self)
         self.tray_page = TrayPage(self)
         self.settings_page = SettingsPage(self)
-        widgets = {"controls": self.controls_page, "curves": self.curves_page, "sensors": self.sensors_page,
-                   "design": self.design_page, "tray": self.tray_page, "settings": self.settings_page,
-                   "about": AboutPage(self)}
+        self.support_page = SupportPage(self)
+        self.in_settings = False
+        self.current_section = "fans"
 
+        self.main_view = MainView((
+            ("fans", "Fans", "Overview and control of your fans", CONTROLS_HELP, self.controls_page),
+            ("curves", "Fan curves", "Individual curves for maximum control", CURVES_HELP, self.curves_page),
+            ("light", "Light", "RGB lighting for mainboard, graphics card and fans", None, LightSection(self)),
+        ), self._section_scrolled)
+        settings_widgets = {"general": self.settings_page, "appearance": self.design_page, "tray": self.tray_page,
+                            "sensors": self.sensors_page, "leds": LedPage(self), "hardware": self.support_page,
+                            "about": AboutPage(self)}
+        self.settings_view = SettingsView(self, [(n, t, i, settings_widgets[n]) for n, t, i in SETTINGS_PAGES])
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, hexpand=True)
-        self.rail = Gtk.ListBox(css_classes=["navigation-sidebar", "fc-rail"], width_request=92)
-        for name, title, icon in PAGES:
-            self.stack.add_named(widgets[name], name)
-            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            box.append(Gtk.Image(icon_name=icon))
-            box.append(Gtk.Label(label=title, wrap=True, justify=Gtk.Justification.CENTER))
-            row = Gtk.ListBoxRow(child=box, tooltip_text=title)
-            row.page_name = name
-            self.rail.append(row)
-        self.rail.connect("row-selected", lambda _l, row: row and self.stack.set_visible_child_name(row.page_name))
-        self.rail.select_row(self.rail.get_row_at_index(0))
+        self.stack.add_named(self.main_view, "main")
+        self.stack.add_named(self.settings_view, "settings")
 
+        # Header: app title on the left; live values, profile and the menu button on the right.
         header = Adw.HeaderBar(show_title=False)
         title = Gtk.Box(spacing=10, margin_start=6)
-        title.append(Gtk.Image(icon_name="fc-fan-symbolic", pixel_size=22))
-        title.append(Gtk.Label(label="Linux FanControl", css_classes=["title"]))
+        title.append(ui.icon_bubble("fc-fan-symbolic", 20))
+        names = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
+        names.append(Gtk.Label(label="LiFaCo", xalign=0, css_classes=["fc-app-title"]))
+        names.append(Gtk.Label(label="Cool. Quiet. In control.", xalign=0, css_classes=["fc-app-subtitle"]))
+        title.append(names)
         header.pack_start(title)
 
-        menu = Gio.Menu()
-        section = Gio.Menu()
-        section.append("New empty configuration", "win.new-config")
-        section.append("Open configuration file …", "win.open-config")
-        section.append("Save configuration as …", "win.save-config")
-        section.append("Import from file …", "win.import-config")
-        menu.append_section(None, section)
-        section = Gio.Menu()
-        section.append("Setup assistant", "win.setup")
-        section.append("Rescan hardware", "win.rescan")
-        section.append("Keyboard shortcuts", "win.shortcuts")
-        section.append("Quit", "win.quit")
-        menu.append_section(None, section)
-        header.pack_end(Gtk.MenuButton(icon_name="view-more-symbolic", menu_model=menu, primary=True,
-                                       tooltip_text="Menu"))
-
-        self.profile_content = Adw.ButtonContent(icon_name="fc-profile-symbolic", label="Profil")
+        self.nav_toggle = Gtk.ToggleButton(icon_name="open-menu-symbolic", valign=Gtk.Align.CENTER,
+                                           css_classes=["flat"], tooltip_text="Menu")
+        header.pack_end(self.nav_toggle)
         self.profile_popover = Gtk.Popover()
-        self.profile_popover.connect("show", lambda *_: self._fill_profiles())
-        self.profile_button = Gtk.MenuButton(child=self.profile_content, popover=self.profile_popover,
-                                             tooltip_text="Profiles (Ctrl+P)")
+        self.profile_popover.connect("show", lambda p: self._fill_profiles(p))
+        self.nav_profile_popover = Gtk.Popover()
+        self.nav_profile_popover.connect("show", lambda p: self._fill_profiles(p))
+        profile_stat, self.profile_stat_label = self._stat("fc-profile-symbolic", "Profile")
+        self.profile_button = Gtk.MenuButton(child=profile_stat, popover=self.profile_popover,
+                                             css_classes=["flat"], tooltip_text="Profiles (Ctrl+P)")
         header.pack_end(self.profile_button)
-        self.hidden_toggle = Gtk.ToggleButton(icon_name="fc-eye-symbolic", active=bool(self.prefs.get("show_hidden")),
-                                              tooltip_text="Show hidden cards (Ctrl+H)")
-        self.hidden_toggle.connect("toggled", lambda b: self.set_show_hidden(b.get_active()))
-        header.pack_end(self.hidden_toggle)
-        refresh = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Rescan hardware (Ctrl+R)")
-        refresh.connect("clicked", lambda *_: self.rescan())
-        header.pack_end(refresh)
+        gpu_stat, self.gpu_stat_label = self._stat("fc-gpu-symbolic", "GPU")
+        cpu_stat, self.cpu_stat_label = self._stat("fc-thermometer-symbolic", "CPU")
+        header.pack_end(gpu_stat)
+        header.pack_end(cpu_stat)
         self.theme.header_widgets.append(header)
         self.apply_theme()
         self._setup_actions()
@@ -144,18 +139,30 @@ class MainWindow(Adw.ApplicationWindow):
         self.banner.connect("button-clicked", lambda *_: self.start_service())
         self.safety_banner = Adw.Banner(title="Safety temperature reached – all controlled fans run at 100 %")
 
-        body = Gtk.Box()
-        body.append(self.rail)
-        body.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+        self.nav = NavPanel(self, self.nav_profile_popover)
         self.toasts = Adw.ToastOverlay(child=self.stack, hexpand=True)
-        body.append(self.toasts)
+        self.split = Adw.OverlaySplitView(content=self.toasts, sidebar=self.nav, sidebar_position=Gtk.PackType.END,
+                                          min_sidebar_width=240, max_sidebar_width=280,
+                                          show_sidebar=self.prefs.get("nav_open") is not False)
+        self.split.bind_property("show-sidebar", self.nav_toggle, "active",
+                                 GObject.BindingFlags.BIDIRECTIONAL | GObject.BindingFlags.SYNC_CREATE)
+        self.split.connect("notify::show-sidebar",
+                           lambda sp, _p: None if sp.get_collapsed() else self.prefs.set("nav_open",
+                                                                                         sp.get_show_sidebar()))
+        self.nav.highlight("fans")
 
         view = Adw.ToolbarView()
         view.add_top_bar(header)
         view.add_top_bar(self.banner)
         view.add_top_bar(self.safety_banner)
-        view.set_content(body)
+        view.set_content(self.split)
         self.set_content(view)
+
+        narrow = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 900sp"))
+        narrow.add_setter(self.split, "collapsed", True)
+        narrow.add_setter(cpu_stat, "visible", False)
+        narrow.add_setter(gpu_stat, "visible", False)
+        self.add_breakpoint(narrow)
 
         self.connect("close-request", self._on_close)
         if self.prefs.get("tray_enabled"):
@@ -171,17 +178,17 @@ class MainWindow(Adw.ApplicationWindow):
             "shortcuts": (self.show_shortcuts, ["F1"]),
             "quit": (self.quit_app, ["<Control>q"]),
             "close": (self.close, ["<Control>w"]),
-            "new-curve": (lambda: (self.show_page("curves"), self.curves_page.add("graph")), ["<Control>n"]),
-            "toggle-hidden": (lambda: self.hidden_toggle.set_active(not self.hidden_toggle.get_active()),
-                              ["<Control>h"]),
+            "new-curve": (lambda: (self.navigate("curves"), self.curves_page.add("graph")), ["<Control>n"]),
+            "toggle-hidden": (lambda: self.set_show_hidden(not self.prefs.get("show_hidden")), ["<Control>h"]),
+            "toggle-menu": (lambda: self.set_nav_visible(not self.split.get_show_sidebar()), ["F9"]),
             "profiles": (lambda: self.profile_button.popup(), ["<Control>p"]),
             "new-config": (self.new_config, []),
             "open-config": (self.open_config, ["<Control>o"]),
             "save-config": (self.save_config, ["<Control><Shift>s"]),
             "import-config": (self.import_config, ["<Control>i"]),
         }
-        for i, (name, _t, _i) in enumerate(PAGES):
-            actions[f"page-{i + 1}"] = (lambda n=name: self.show_page(n), [f"<Control>{i + 1}"])
+        for i, name in enumerate(("fans", "curves", "light", "general")):
+            actions[f"page-{i + 1}"] = (lambda n=name: self.navigate(n), [f"<Control>{i + 1}"])
         for name, (callback, accels) in actions.items():
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda *_a, cb=callback: cb())
@@ -235,13 +242,11 @@ class MainWindow(Adw.ApplicationWindow):
         else:
             hidden.append(item_id)
             if not self.prefs.get("show_hidden"):
-                self.toast("Hidden – use the eye icon at the top to show it again")
+                self.toast("Hidden – Settings → General → Show hidden cards shows it again")
         self.config_changed(rebuild={"controls", "curves", "sensors"})
 
     def set_show_hidden(self, show):
         self.prefs.set("show_hidden", bool(show))
-        if self.hidden_toggle.get_active() != bool(show):
-            self.hidden_toggle.set_active(bool(show))
         self.rebuild({"controls", "curves", "sensors", "settings"})
 
     def set_fahrenheit(self, index):
@@ -273,12 +278,68 @@ class MainWindow(Adw.ApplicationWindow):
             self.sensors_page.rebuild()
         if "settings" in pages:
             self.settings_page.rebuild()
+            self.support_page.rebuild()
         if "tray" in pages:
             self.tray_page.rebuild()
         self._update_profile_label()
 
     def _update_profile_label(self):
-        self.profile_content.set_label((self.config or {}).get("profile") or "Profile")
+        name = (self.config or {}).get("profile") or "–"
+        self.profile_stat_label.set_label(name)
+        self.nav.set_profile(name)
+
+    def _stat(self, icon, caption):
+        box = Gtk.Box(spacing=8, css_classes=["fc-stat"], valign=Gtk.Align.CENTER)
+        box.append(Gtk.Image(icon_name=icon, css_classes=["fc-dim-icon"]))
+        labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        value = Gtk.Label(label="–", xalign=0, css_classes=["fc-stat-value", "numeric"])
+        labels.append(value)
+        labels.append(Gtk.Label(label=caption, xalign=0, css_classes=["fc-stat-caption"]))
+        box.append(labels)
+        return box, value
+
+    def _update_stats(self):
+        temps = (self.status or {}).get("temps", {})
+        for label, sid in ((self.cpu_stat_label, self._pick_temp(CPU_PATTERNS)),
+                           (self.gpu_stat_label, self._pick_temp(GPU_PATTERNS))):
+            value = temps.get(sid, {}).get("value") if sid else None
+            label.set_label("–" if value is None else f"{c_to_disp(value):.0f}°")
+
+    # --- navigation -----------------------------------------------------
+    def navigate(self, name):
+        """Fans/Curves/Light scroll the overview; settings pages open the settings view."""
+        name = PAGE_ALIASES.get(name, name)
+        if name in MAIN_SECTIONS:
+            if self.in_settings:
+                self.close_settings()
+            self.nav.highlight(name)
+            self.main_view.scroll_to(name)
+        else:
+            self.open_settings("general" if name == "settings" else name)
+        if self.split.get_collapsed():
+            self.split.set_show_sidebar(False)
+
+    def open_settings(self, page="general"):
+        self.in_settings = True
+        self.settings_view.select(page)
+        self.stack.set_visible_child_name("settings")
+        self.nav.highlight("settings")
+
+    def close_settings(self):
+        self.in_settings = False
+        self.stack.set_visible_child_name("main")
+        self.nav.highlight(self.current_section)
+
+    def _section_scrolled(self, name):
+        self.current_section = name
+        if not self.in_settings:
+            self.nav.highlight(name)
+
+    def set_nav_visible(self, visible):
+        self.split.set_show_sidebar(visible)
+
+    def show_page(self, name):
+        self.navigate(name)
 
     def config_changed(self, rebuild=None):
         if self.config is None:
@@ -337,6 +398,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.controls_page.update_live()
         self.curves_page.update_live()
         self.sensors_page.update_live()
+        self._update_stats()
         self.safety_banner.set_revealed(bool(status.get("safety_active")))
         if profiles is not None and self.tray:
             self.tray.set_profiles(profiles["profiles"], profiles["active"])
@@ -366,7 +428,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.banner.set_button_label(label)
         self.banner.set_revealed(True)
         if self.tray:
-            self.tray.set_main_tooltip("Linux FanControl", "Service unreachable")
+            self.tray.set_main_tooltip("LiFaCo", "Service unreachable")
 
     def toast(self, message):
         self.toasts.add_toast(Adw.Toast(title=GLib.markup_escape_text(str(message)), timeout=5))
@@ -379,6 +441,17 @@ class MainWindow(Adw.ApplicationWindow):
                                        else Adw.ResponseAppearance.SUGGESTED)
         dialog.set_default_response("cancel")
         dialog.connect("response", lambda _d, r: callback() if r == "ok" else None)
+        dialog.present(self)
+
+    def prompt_text(self, heading, text, action_label, callback):
+        """Small dialog with one text field; an empty text resets to the hardware name."""
+        entry = Gtk.Entry(text=text, activates_default=True)
+        dialog = Adw.AlertDialog(heading=heading, body="Leave empty to use the hardware name.", extra_child=entry)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("ok", action_label)
+        dialog.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("ok")
+        dialog.connect("response", lambda _d, r: callback(entry.get_text().strip()) if r == "ok" else None)
         dialog.present(self)
 
     # --- tray -----------------------------------------------------------
@@ -418,7 +491,7 @@ class MainWindow(Adw.ApplicationWindow):
                              + (f" · {fmt_rpm(rpm)}" if rpm is not None else ""))
         if st.get("safety_active"):
             lines.insert(0, "⚠ Safety temperature reached")
-        self.tray.set_main_tooltip(f"Linux FanControl – {st.get('profile') or ''}",
+        self.tray.set_main_tooltip(f"LiFaCo – {st.get('profile') or ''}",
                                    "\n".join(lines) or "No fans controlled")
         entries = []
         for entry in self.prefs.get("tray_sensors") or []:
@@ -451,12 +524,6 @@ class MainWindow(Adw.ApplicationWindow):
         self.app.quit()
 
     # --- actions --------------------------------------------------------
-    def show_page(self, name):
-        for i in range(len(PAGES)):
-            row = self.rail.get_row_at_index(i)
-            if row and row.page_name == name:
-                self.rail.select_row(row)
-
     def start_service(self):
         if _service_missing() and os.environ.get("APPIMAGE"):
             self._install_from_appimage()
@@ -569,7 +636,8 @@ class MainWindow(Adw.ApplicationWindow):
                 "GPU fans follow the GPU curve, all others the CPU curve.\n\n" + "\n".join(lines) +
                 "\n\nYou can adjust everything afterwards. Tip: calibrate each fan next.")
         if not pwms:
-            body = "No controllable fans were found. Hints are shown on the “Controls” page."
+            body = ("No controllable fans were found. Hints are shown in the “Fans” section and under "
+                    "Settings → Hardware support.")
 
         dialog = Adw.AlertDialog(heading="Setup", body=body)
         dialog.add_response("later", "Later")
@@ -623,7 +691,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     # --- configuration files --------------------------------------------
     def _json_filter(self):
-        f = Gtk.FileFilter(name="Linux FanControl configuration (JSON)")
+        f = Gtk.FileFilter(name="LiFaCo configuration (JSON)")
         f.add_pattern("*.json")
         store = Gio.ListStore.new(Gtk.FileFilter)
         store.append(f)
@@ -760,7 +828,11 @@ class MainWindow(Adw.ApplicationWindow):
         dialog.present(self)
 
     # --- profiles -------------------------------------------------------
-    def _fill_profiles(self):
+    def _popdown_profiles(self):
+        self._popdown_profiles()
+        self.nav_profile_popover.popdown()
+
+    def _fill_profiles(self, popover):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=8, margin_bottom=8,
                       margin_start=8, margin_end=8, width_request=300)
         listbox = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
@@ -775,10 +847,10 @@ class MainWindow(Adw.ApplicationWindow):
         files = Gtk.Box(spacing=6, homogeneous=True)
         for label, callback in (("Open file …", self.open_config), ("Save as …", self.save_config)):
             b = Gtk.Button(label=label, css_classes=["flat"])
-            b.connect("clicked", lambda _b, cb=callback: (self.profile_popover.popdown(), cb()))
+            b.connect("clicked", lambda _b, cb=callback: (self._popdown_profiles(), cb()))
             files.append(b)
         box.append(files)
-        self.profile_popover.set_child(box)
+        popover.set_child(box)
 
         def do_save(*_):
             name = entry.get_text().strip()
@@ -791,7 +863,7 @@ class MainWindow(Adw.ApplicationWindow):
                 return self.client.call("save_profile", name=name)
             run_async(work, lambda c: self._profile_loaded(c, f"Profile “{name}” saved"),
                       lambda e: self.toast(str(e)))
-            self.profile_popover.popdown()
+            self._popdown_profiles()
             self.profiles_checked = 0
         save.connect("clicked", do_save)
         entry.connect("activate", do_save)
@@ -814,7 +886,7 @@ class MainWindow(Adw.ApplicationWindow):
             Adw.ActionRow(title="Service unreachable", subtitle=str(e))))
 
     def _load_profile(self, name):
-        self.profile_popover.popdown()
+        self._popdown_profiles()
         if self.push_source:
             self._push()
         run_async(lambda: self.client.call("load_profile", name=name),
@@ -827,7 +899,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.profiles_checked = 0
 
     def _delete_profile(self, name):
-        self.profile_popover.popdown()
+        self._popdown_profiles()
         self.confirm(f"Delete profile “{name}”?", "The active configuration stays unchanged.", "Delete",
                      lambda: run_async(lambda: self.client.call("delete_profile", name=name),
                                        lambda _: self.toast(f"Profile “{name}” deleted"),
@@ -877,5 +949,5 @@ class FanControlApp(Adw.Application):
 
 
 def main():
-    GLib.set_application_name("Linux FanControl")
+    GLib.set_application_name("LiFaCo")
     return FanControlApp().run(sys.argv)

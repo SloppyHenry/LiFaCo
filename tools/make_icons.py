@@ -78,6 +78,12 @@ ICONS = {
     "fc-keyboard": ('<path fill-rule="evenodd" d="M1 3.5h14v9H1zm1.5 1.5v6h11V5z"/>'
                     + "".join(f'<rect x="{x}" y="6" width="1.6" height="1.6"/>' for x in (3.5, 6, 8.5, 11))
                     + '<rect x="4.5" y="8.6" width="7" height="1.6"/>'),
+    "fc-light": (dot(8, 8, 3.2) + "".join(
+        f'<rect x="7.2" y="0.6" width="1.6" height="3" rx=".8" transform="rotate({a} 8 8)"/>'
+        for a in range(0, 360, 45))),
+    "fc-gpu": ('<path fill-rule="evenodd" d="M1 3.5h14v8.5H1zm1.5 1.5v5.5h11V5z"/>' + dot(5.5, 7.75, 1.8)
+               + '<rect x="9" y="6.5" width="3.5" height="1.2" rx=".4"/><rect x="9" y="8.3" width="3.5" height="1.2" rx=".4"/>'
+               + '<rect x="3" y="12" width="1.5" height="2.5"/><rect x="6" y="12" width="6" height="1.6"/>'),
     "fc-profile": ('<rect x="1" y="2" width="14" height="2" rx=".6"/><rect x="1" y="7" width="9" height="2" rx=".6"/>'
                    '<rect x="1" y="12" width="11" height="2" rx=".6"/><path d="M12 6.5l1.2 2 2.3.3-1.7 1.6.4 2.2-2.2-1'
                    '-2 1 .4-2.2-1.7-1.6 2.3-.3z"/>'),

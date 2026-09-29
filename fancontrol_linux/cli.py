@@ -35,7 +35,7 @@ def print_status(st):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="fancontrol-linuxctl", description="Linux FanControl – command line control")
+    parser = argparse.ArgumentParser(prog="fancontrol-linuxctl", description="LiFaCo – command line control")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("status", help="show current values")
     sub.add_parser("profiles", help="list profiles")

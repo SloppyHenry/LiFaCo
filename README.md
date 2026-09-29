@@ -1,18 +1,23 @@
-# Linux FanControl
+# LiFaCo
 
-Fan control for Linux, inspired by [FanControl](https://getfancontrol.com) for Windows: cards, a side menu, colour
-themes, a curve editor, custom sensors, profiles, calibration and tray icons.
-Linux FanControl is an independent implementation. The original is closed source, so no code was taken from it.
+**Li**nux **Fa**n **Co**ntrol – *Cool. Quiet. In control.*
 
-![Controls](docs/controls.png)
+Fan control for Linux with fan cards, curves, custom sensors, profiles, calibration, colour themes and tray icons,
+inspired by [FanControl](https://getfancontrol.com) for Windows. LiFaCo is an independent implementation: the
+original is closed source, so no code was taken from it.
 
-| Curves | Curve editor |
+![Overview](docs/overview.png)
+
+| Fan curves | Curve editor |
 |---|---|
 | ![Curves](docs/curves.png) | ![Editor](docs/curve-editor.png) |
 
-| Themes | "Neon" theme |
+| Settings → Appearance | "Neon" theme |
 |---|---|
-| ![Design](docs/design.png) | ![Neon](docs/curves-neon.png) |
+| ![Settings](docs/settings.png) | ![Neon](docs/neon.png) |
+
+> LiFaCo was previously called *Linux FanControl* (repository `SloppyHenry/FanControlLinux`). Existing
+> installations move over with `sudo fancontrol-linux-upgrade`; see [Upgrading](#upgrading).
 
 ## Features
 
@@ -43,12 +48,20 @@ Composite" or "Mainboard (ITE IT8689): Fan header 1" (CPU model, PCI ID database
 header is "CPU_FAN" or "SYS_FAN2" is not reported by the hardware – use **Identify** and give the fan your own name.
 
 **User interface**
-- Side menu: Controls, Curves, Sensors, Design, Tray, Settings, About
+- One scrolling overview with the sections **Fans**, **Curves** and **Light**. Each fan card shows the speed, a
+  mini chart of its curve with the live operating point and, on request, the details (curve, current temperature,
+  target speed, min./max. speed and all fine tuning options)
+- A collapsible menu on the right (burger button, F9): Fans, Curves and Light scroll to their section, **Settings**
+  opens its own view (General, Appearance, Tray icons, Sensors, LED devices, Hardware support, About). The active
+  profile can be switched at the bottom of the menu and in the header, which also shows CPU and GPU temperature
+- **Light** (coming later): RGB lighting of mainboard, graphics card, fans and coolers. *Settings → LED devices*
+  is where LED devices will be found and activated; the lighting effects will then be set in the Light section
+- **Colourful cards**: every fan and curve gets its own colour (can be switched off)
 - **Midnight themes** (default): a dark look with a colour gradient for curves, switches and buttons – Aurora
   (blue → violet), Neon (green → lime), Rainbow, Sunset, Amber, Mint, Ice and Orchid
 - Classic themes (blue/yellow, ocean, forest, ember, violet, graphite, Adwaita) or **custom colours** for accent
   (optionally as a gradient), cards and header bar, plus light/dark/system
-- °C or °F, hide cards (the eye icon shows them again), help (?) per section and per curve type
+- °C or °F, hide cards (Settings → General → "Show hidden cards" shows them again), help (?) per section and per curve type
 - **Tray**: main icon with a menu (open, switch profile, quit) and any number of **value icons**
   (temperature, % or RPM) in your own colours; optionally start in the tray at login
 - **Profiles** plus configuration files: new (empty), open, save as, **import** (single curves/sensors/controls
@@ -67,11 +80,11 @@ header is "CPU_FAN" or "SYS_FAN2" is not reported by the hardware – use **Iden
 Every feature from the release notes up to V281 was taken over where it makes sense on Linux.
 These parts are intentionally different:
 
-| Original | Linux FanControl |
+| Original | LiFaCo |
 |---|---|
-| Plugins (.NET DLLs) | Built-in Linux backends (see below), file sensors and `fancontrol-linuxctl` for your own scripts |
+| Plugins (.NET DLLs) | Built-in Linux backends (see below), file sensors and `lifacoctl` for your own scripts |
 | LibreHardwareMonitor, PawnIO/WinRing0, ADLX | Linux kernel drivers (hwmon), NVML, liquidctl |
-| Updater, signing, .NET versions | `install.sh`, AppImage and `fancontrol-linux-upgrade` |
+| Updater, signing, .NET versions | `install.sh`, AppImage and `lifaco-upgrade` |
 | Translations | English user interface |
 
 ## Supported hardware
@@ -127,28 +140,28 @@ Linux Mint, Pop!_OS, Manjaro, EndeavourOS, CachyOS, Rocky/Alma etc. are recognis
 
 The AppImage ships Python, GTK 4, libadwaita and liquidctl and runs without additional packages on practically any
 x86_64 Linux – including Debian 12 and Ubuntu 22.04, where the regular installation has no user interface.
-Download it from the [releases page](https://github.com/SloppyHenry/FanControlLinux/releases).
+Download it from the [releases page](https://github.com/SloppyHenry/LiFaCo/releases).
 
 ```bash
-chmod +x LinuxFanControl-x86_64.AppImage
-./LinuxFanControl-x86_64.AppImage                  # start the user interface
-sudo ./LinuxFanControl-x86_64.AppImage --install   # set up service + hardware (same options as install.sh)
+chmod +x LiFaCo-x86_64.AppImage
+./LiFaCo-x86_64.AppImage                  # start the user interface
+sudo ./LiFaCo-x86_64.AppImage --install   # set up service + hardware (same options as install.sh)
 ```
 
 A background service with root privileges controls the fans, and an AppImage cannot run that on its own.
 `--install` therefore copies the AppImage to `/opt/fancontrol-linux` and sets up the service, commands, menu entry
 and drivers just like `install.sh`. If you start the user interface without the service, it offers an
-**"Install service"** button. Remove it with `sudo ./LinuxFanControl-x86_64.AppImage --uninstall [--purge]`.
+**"Install service"** button. Remove it with `sudo ./LiFaCo-x86_64.AppImage --uninstall [--purge]`.
 
-Other modes: `--ctl <command>` (like `fancontrol-linuxctl`), `--daemon`.
+Other modes: `--ctl <command>` (like `lifacoctl`), `--daemon`.
 
-Build it yourself (needs Docker or Podman): `./packaging/appimage/build.sh` → `dist/LinuxFanControl-x86_64.AppImage`
+Build it yourself (needs Docker or Podman): `./packaging/appimage/build.sh` → `dist/LiFaCo-x86_64.AppImage`
 
 ## Installation from source
 
 ```bash
-git clone https://github.com/SloppyHenry/FanControlLinux.git
-cd FanControlLinux
+git clone https://github.com/SloppyHenry/LiFaCo.git
+cd LiFaCo
 sudo ./install.sh
 ```
 
@@ -162,7 +175,8 @@ The installer detects the distribution and the init system and takes care of:
    - vendor modules for Dell, ASUS and ThinkPad
    - checks for NVIDIA (NVML) and Intel Arc
    - AMD RDNA3/4 overdrive and the it87 DKMS driver are offered on request
-3. Program in `/usr/local/lib/fancontrol-linux`, commands in `/usr/local/bin`, an entry in the application menu.
+3. Program in `/usr/local/lib/fancontrol-linux`, commands in `/usr/local/bin` (`lifaco`, `lifacoctl`,
+   `lifaco-upgrade`; the older names `fancontrol-linux*` keep working), an entry in the application menu.
 4. Creates the group `fancontrol` and adds you to it. **Log out and back in once afterwards.**
 5. Sets up and starts the background service (systemd, OpenRC or runit). A running lm-sensors `fancontrol`
    service is disabled because both would interfere with each other.
@@ -171,8 +185,7 @@ The installer detects the distribution and the init system and takes care of:
 Options: `--yes` (no questions), `--no-deps`, `--no-hardware`, `--no-service`, `--amd-overdrive`, `--it87-dkms`,
 `--thinkpad-fan`. Log: `/var/log/fancontrol-linux-install.log`.
 
-Then start **Linux FanControl** from the application menu or with `fancontrol-linux` (`--hidden` starts it in
-the tray only).
+Then start **LiFaCo** from the application menu or with `lifaco` (`--hidden` starts it in the tray only).
 
 Uninstall: `sudo ./uninstall.sh`. This also removes the driver settings created by the installer; `--purge`
 additionally removes the configuration and the group.
@@ -180,17 +193,20 @@ additionally removes the configuration and the group.
 ## Upgrading
 
 ```bash
-sudo fancontrol-linux-upgrade            # upgrade to the latest release
-fancontrol-linux-upgrade --check         # only check whether an update is available
-sudo fancontrol-linux-upgrade --version v1.1.0   # install a specific release
+sudo lifaco-upgrade                    # upgrade to the latest release
+lifaco-upgrade --check                 # only check whether an update is available
+sudo lifaco-upgrade --version v2.0.0   # install a specific release
 ```
 
-The upgrade script detects whether Linux FanControl was installed from source or from the AppImage and fetches
+The upgrade script detects whether LiFaCo was installed from source or from the AppImage and fetches
 the matching release from GitHub (AppImage downloads are checked against their SHA-256 checksum). Configuration,
 profiles and driver settings are kept, and the service is restarted. Afterwards restart the user interface.
 
-Installations of version 1.0.0 do not have the command yet. To add it, run `sudo ./upgrade.sh` once from a
-checkout of this repository.
+**Coming from Linux FanControl (1.x)?** Run `sudo fancontrol-linux-upgrade` once. It installs LiFaCo 2.0,
+which fetches all further updates from this repository and adds the `lifaco*` commands. Configuration and
+profiles are kept – the technical names (service `fancontrol-linux`, group `fancontrol`, paths) did not change.
+Installations of version 1.0.0 do not have the upgrade command yet; run `sudo ./upgrade.sh` once from a checkout
+of this repository.
 
 ### No mainboard fans found?
 
@@ -205,14 +221,14 @@ The installer tries to handle this automatically. If it still does not work:
 ## Command line
 
 ```bash
-fancontrol-linuxctl status              # all values
-fancontrol-linuxctl profiles            # list profiles
-fancontrol-linuxctl save Quiet          # save the current settings as a profile
-fancontrol-linuxctl load Quiet          # load a profile (e.g. from a keyboard shortcut or script)
-fancontrol-linuxctl identify nvidia:0:pwm0
-fancontrol-linuxctl calibrate nct6798@platform/nct6775.656:pwm2
-fancontrol-linuxctl export > backup.json
-fancontrol-linuxctl import backup.json
+lifacoctl status              # all values
+lifacoctl profiles            # list profiles
+lifacoctl save Quiet          # save the current settings as a profile
+lifacoctl load Quiet          # load a profile (e.g. from a keyboard shortcut or script)
+lifacoctl identify nvidia:0:pwm0
+lifacoctl calibrate nct6798@platform/nct6775.656:pwm2
+lifacoctl export > backup.json
+lifacoctl import backup.json
 ```
 
 ### File sensors
@@ -223,7 +239,7 @@ A script can provide temperatures by writing the value (°C, first line) to a fi
 echo 45.5 > /run/fancontrol-linux/sensors/water.sensor     # writable for members of the fancontrol group
 ```
 
-Then add a file sensor with this path on the **Sensors** page using +.
+Then add a file sensor with this path under **Settings → Sensors** using +.
 Only `/run/fancontrol-linux/sensors/`, `/var/lib/fancontrol-linux/sensors/` and `/sys/` are allowed.
 
 ## Trying it without real fans
@@ -249,8 +265,8 @@ fancontrol_linux/
   engine.py             control loop, fine tuning, start assist, RPM conversion, calibration, safety temperature
   config.py             validation, migration of older configurations, profiles
   daemon.py             service, Unix socket /run/fancontrol-linux/daemon.sock (group fancontrol)
-  cli.py                fancontrol-linuxctl
-  gui/                  GTK4/libadwaita user interface (pages, curve editor, themes, tray)
+  cli.py                lifacoctl (fancontrol-linuxctl)
+  gui/                  GTK4/libadwaita user interface (overview, side menu, settings, curve editor, themes, tray)
 packaging/appimage/     AppImage build
 tools/fake_hwmon.py     hardware simulator
 tools/make_icons.py     generates the icons

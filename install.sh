@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Linux FanControl – installer for Debian/Ubuntu/Mint, Fedora/RHEL, Arch/Manjaro, openSUSE, Void, Alpine, Gentoo.
+# LiFaCo – installer for Debian/Ubuntu/Mint, Fedora/RHEL, Arch/Manjaro, openSUSE, Void, Alpine, Gentoo.
 # Installs the program, dependencies, hardware drivers and the background service (systemd, OpenRC or runit).
 set -euo pipefail
 
@@ -31,7 +31,7 @@ Usage: sudo ./install.sh [options]
   --thinkpad-fan       ThinkPad: enable fan control (thinkpad_acpi fan_control=1) without asking
   -h, --help           This help
 
-From the AppImage: sudo ./LinuxFanControl-x86_64.AppImage --install [options]
+From the AppImage: sudo ./LiFaCo-x86_64.AppImage --install [options]
 EOF
 }
 
@@ -262,6 +262,9 @@ if [[ -n $APPIMAGE_SRC ]]; then
     install -Dm 644 "$OPT/usr/lib/fancontrol-linux/data/io.github.fancontrol_linux.svg" "$PREFIX/share/icons/hicolor/scalable/apps/io.github.fancontrol_linux.svg"
     SRC="$OPT/usr/lib/fancontrol-linux"
     ln -sf "$SRC/upgrade.sh" "$PREFIX/bin/fancontrol-linux-upgrade"
+    for pair in lifaco:fancontrol-linux lifacod:fancontrol-linuxd lifacoctl:fancontrol-linuxctl lifaco-upgrade:fancontrol-linux-upgrade; do
+        ln -sf "$PREFIX/bin/${pair#*:}" "$PREFIX/bin/${pair%%:*}"   # short command names
+    done
     ok "Program, commands, menu entry"
 else
 step "Copying the program to $LIBDIR"
@@ -278,6 +281,9 @@ for b in fancontrol-linux fancontrol-linuxd fancontrol-linuxctl; do
 done
 install -m 755 "$SRC/upgrade.sh" "$LIBDIR/upgrade.sh"
 ln -sf "$LIBDIR/upgrade.sh" "$PREFIX/bin/fancontrol-linux-upgrade"
+for pair in lifaco:fancontrol-linux lifacod:fancontrol-linuxd lifacoctl:fancontrol-linuxctl lifaco-upgrade:fancontrol-linux-upgrade; do
+    ln -sf "$PREFIX/bin/${pair#*:}" "$PREFIX/bin/${pair%%:*}"   # short command names
+done
 install -Dm 644 "$SRC/data/io.github.fancontrol_linux.desktop" "$PREFIX/share/applications/io.github.fancontrol_linux.desktop"
 install -Dm 644 "$SRC/data/io.github.fancontrol_linux.svg" "$PREFIX/share/icons/hicolor/scalable/apps/io.github.fancontrol_linux.svg"
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$PREFIX/share/icons/hicolor" || true
@@ -459,7 +465,7 @@ if [[ $SETUP_HARDWARE -eq 1 ]]; then
     if [[ ${#MODULES[@]} -gt 0 ]]; then
         CONF=/etc/modules-load.d/fancontrol-linux.conf
         mkdir -p /etc/modules-load.d
-        { echo "# Loaded by Linux FanControl"; printf '%s\n' "${MODULES[@]}" | sort -u; } > "$CONF"
+        { echo "# Loaded by LiFaCo"; printf '%s\n' "${MODULES[@]}" | sort -u; } > "$CONF"
         record "$CONF"
         ok "Drivers are loaded automatically at boot ($CONF)"
     fi
@@ -526,9 +532,9 @@ if [[ ${#HINTS[@]} -gt 0 ]]; then
     printf '  • %s\n' "${HINTS[@]}"
     echo
 fi
-echo "${G}Done.${N} Start 'Linux FanControl' from the application menu or with: fancontrol-linux"
+echo "${G}Done.${N} Start 'LiFaCo' from the application menu or with: lifaco"
 echo "Log: $LOG"
-echo "Update later with: sudo fancontrol-linux-upgrade"
+echo "Update later with: sudo lifaco-upgrade"
 if [[ $RELOGIN -eq 1 ]]; then
     echo "${B}IMPORTANT:${N} '$TARGET_USER' was added to the group 'fancontrol' – please log out and back in once."
 fi

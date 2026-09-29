@@ -178,7 +178,7 @@ def _prepare_sensor_dir(socket_file, group):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Linux FanControl – background service")
+    parser = argparse.ArgumentParser(description="LiFaCo – background service")
     parser.add_argument("--socket", default=socket_path())
     parser.add_argument("--group", default="fancontrol", help="group allowed to access the socket ('' = none)")
     parser.add_argument("--verbose", "-v", action="store_true")

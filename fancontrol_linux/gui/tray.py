@@ -104,8 +104,8 @@ class Tray:
         except GLib.Error:
             self.bus = None
             return False
-        self._add_item("main", _Item("/org/fancontrol_linux/Tray/main", "Linux FanControl", icon_name=APP_ID,
-                                     tooltip=("Linux FanControl", "")))
+        self._add_item("main", _Item("/org/fancontrol_linux/Tray/main", "LiFaCo", icon_name=APP_ID,
+                                     tooltip=("LiFaCo", "")))
         self.watch_id = Gio.bus_watch_name_on_connection(self.bus, WATCHER, Gio.BusNameWatcherFlags.NONE,
                                                          lambda *_: self._register_all(), None)
         return True
@@ -178,7 +178,7 @@ class Tray:
     def _menu_items(self):
         items = {
             0: ({"children-display": GLib.Variant("s", "submenu")}, [1, 2, 3, 4, 5]),
-            1: ({"label": GLib.Variant("s", "Open Linux FanControl")}, []),
+            1: ({"label": GLib.Variant("s", "Open LiFaCo")}, []),
             2: ({"type": GLib.Variant("s", "separator")}, []),
             3: ({"label": GLib.Variant("s", "Profile"), "children-display": GLib.Variant("s", "submenu"),
                  "enabled": GLib.Variant("b", bool(self.profiles))}, [100 + i for i in range(len(self.profiles))]),

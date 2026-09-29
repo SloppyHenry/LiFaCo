@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Linux FanControl – upgrade an existing installation to the latest (or a given) release from GitHub.
+# LiFaCo – upgrade an existing installation to the latest (or a given) release from GitHub.
 # Works for both installation types: from source (install.sh) and from the AppImage (--install).
 # Configuration, profiles and driver settings are kept.
 set -euo pipefail
 
-REPO="SloppyHenry/FanControlLinux"
+REPO="SloppyHenry/LiFaCo"
 API="https://api.github.com/repos/$REPO/releases"
 PREFIX=/usr/local
 OPT=/opt/fancontrol-linux
 LIBDIR="$PREFIX/lib/fancontrol-linux"
-APPIMAGE_NAME="LinuxFanControl-x86_64.AppImage"
+APPIMAGE_NAME="LiFaCo-x86_64.AppImage"
+OLD_APPIMAGE_NAMES=("LinuxFanControl-x86_64.AppImage")   # asset names of releases before 2.0.0
 
 CHECK_ONLY=0
 FORCE=0
@@ -17,7 +18,7 @@ WANTED=""
 
 usage() {
     cat <<'EOF'
-Usage: sudo fancontrol-linux-upgrade [options]
+Usage: sudo lifaco-upgrade [options]
 
   --check              Only check whether an update is available (no root needed)
   --version vX.Y.Z     Install this release instead of the latest one (also allows downgrades)
@@ -41,7 +42,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ $CHECK_ONLY -eq 0 && $EUID -ne 0 ]]; then
-    echo "Please run with sudo: sudo fancontrol-linux-upgrade" >&2
+    echo "Please run with sudo: sudo lifaco-upgrade" >&2
     exit 1
 fi
 
@@ -68,7 +69,7 @@ elif [[ -d $LIBDIR/fancontrol_linux ]]; then
     MODE=source
     INSTALLED=$(version_of "$LIBDIR/fancontrol_linux/__init__.py")
 else
-    echo "Linux FanControl does not seem to be installed (neither $OPT nor $LIBDIR exists)." >&2
+    echo "LiFaCo does not seem to be installed (neither $OPT nor $LIBDIR exists)." >&2
     echo "Install it first: sudo ./install.sh, or sudo ./$APPIMAGE_NAME --install" >&2
     exit 1
 fi
@@ -92,11 +93,11 @@ echo "Available: $AVAILABLE"
 
 NEWEST=$(printf '%s\n%s\n' "$AVAILABLE" "$INSTALLED" | sort -V | tail -1)
 if [[ -z $WANTED && $FORCE -eq 0 && ( $AVAILABLE == "$INSTALLED" || $NEWEST == "$INSTALLED" ) ]]; then
-    echo "Linux FanControl is up to date."
+    echo "LiFaCo is up to date."
     exit 0
 fi
 if [[ $CHECK_ONLY -eq 1 ]]; then
-    echo "An update is available: sudo fancontrol-linux-upgrade"
+    echo "An update is available: sudo lifaco-upgrade"
     exit 0
 fi
 
@@ -108,22 +109,26 @@ asset_url() {   # asset_url <file name>
 }
 
 if [[ $MODE == appimage ]]; then
-    URL=$(asset_url "$APPIMAGE_NAME")
-    if [[ -z $URL ]]; then
+    ASSET=""
+    for name in "$APPIMAGE_NAME" "${OLD_APPIMAGE_NAMES[@]}"; do
+        URL=$(asset_url "$name")
+        if [[ -n $URL ]]; then ASSET=$name; break; fi
+    done
+    if [[ -z $ASSET ]]; then
         echo "Release $TAG has no $APPIMAGE_NAME." >&2
         exit 1
     fi
-    echo "Downloading $APPIMAGE_NAME ($TAG) …"
-    fetch "$URL" "$TMP/$APPIMAGE_NAME"
-    SUM_URL=$(asset_url "$APPIMAGE_NAME.sha256")
+    echo "Downloading $ASSET ($TAG) …"
+    fetch "$URL" "$TMP/$ASSET"
+    SUM_URL=$(asset_url "$ASSET.sha256")
     if [[ -n $SUM_URL ]]; then
-        fetch "$SUM_URL" "$TMP/$APPIMAGE_NAME.sha256"
-        (cd "$TMP" && sha256sum -c "$APPIMAGE_NAME.sha256" >/dev/null) || { echo "Checksum mismatch – aborting." >&2; exit 1; }
+        fetch "$SUM_URL" "$TMP/$ASSET.sha256"
+        (cd "$TMP" && sha256sum -c "$ASSET.sha256" >/dev/null) || { echo "Checksum mismatch – aborting." >&2; exit 1; }
         echo "Checksum verified."
     fi
-    chmod +x "$TMP/$APPIMAGE_NAME"
+    chmod +x "$TMP/$ASSET"
     # Extract-and-run avoids needing FUSE as root.
-    APPIMAGE_EXTRACT_AND_RUN=1 "$TMP/$APPIMAGE_NAME" --install --yes --no-hardware
+    APPIMAGE_EXTRACT_AND_RUN=1 "$TMP/$ASSET" --install --yes --no-hardware
 else
     echo "Downloading source $TAG …"
     fetch "https://github.com/$REPO/archive/refs/tags/$TAG.tar.gz" "$TMP/source.tar.gz"
@@ -133,5 +138,5 @@ else
 fi
 
 echo
-echo "Linux FanControl updated from $INSTALLED to $AVAILABLE."
+echo "LiFaCo updated from $INSTALLED to $AVAILABLE."
 echo "If the user interface is open, close it (also in the tray) and start it again."

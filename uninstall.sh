@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Removes Linux FanControl. With --purge the configuration, profiles and the group are deleted as well.
+# Removes LiFaCo. With --purge the configuration, profiles and the group are deleted as well.
 set -euo pipefail
 
 PREFIX=/usr/local
@@ -30,7 +30,7 @@ if [[ -d /etc/sv/fancontrol-linux ]]; then
     rm -rf /etc/sv/fancontrol-linux
 fi
 
-for b in fancontrol-linux fancontrol-linuxd fancontrol-linuxctl fancontrol-linux-upgrade; do
+for b in fancontrol-linux fancontrol-linuxd fancontrol-linuxctl fancontrol-linux-upgrade lifaco lifacod lifacoctl lifaco-upgrade; do
     rm -f "$PREFIX/bin/$b"
 done
 rm -rf "$PREFIX/lib/fancontrol-linux" /opt/fancontrol-linux
@@ -66,4 +66,4 @@ if [[ $PURGE -eq 1 ]]; then
 else
     echo "The configuration in /etc/fancontrol-linux is kept (remove everything: --purge)."
 fi
-echo "Linux FanControl has been removed."
+echo "LiFaCo has been removed."

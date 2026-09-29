@@ -1,5 +1,5 @@
 [Unit]
-Description=Linux FanControl (fan control)
+Description=LiFaCo (fan control)
 After=systemd-modules-load.service lm-sensors.service
 Conflicts=fancontrol.service
 

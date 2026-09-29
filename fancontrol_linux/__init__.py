@@ -1,2 +1,2 @@
-__version__ = "1.3.0"
+__version__ = "2.0.0"
 APP_ID = "io.github.fancontrol_linux"

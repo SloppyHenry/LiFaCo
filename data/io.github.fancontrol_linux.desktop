@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Linux FanControl
+Name=LiFaCo
 GenericName=Fan control
 GenericName[de]=Lüftersteuerung
 Comment=Fan curves, profiles and calibration for Linux
@@ -9,5 +9,5 @@ Exec=fancontrol-linux
 Icon=io.github.fancontrol_linux
 Terminal=false
 Categories=System;Settings;HardwareSettings;
-Keywords=fan;lüfter;pwm;temperature;temperatur;hwmon;cooling;
+Keywords=lifaco;fancontrol;fan;lüfter;pwm;temperature;temperatur;hwmon;cooling;
 StartupNotify=true

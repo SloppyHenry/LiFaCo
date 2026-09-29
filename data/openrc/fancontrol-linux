@@ -1,7 +1,7 @@
 #!/sbin/openrc-run
-# Linux FanControl – background service (OpenRC)
+# LiFaCo – background service (OpenRC)
 
-name="Linux FanControl"
+name="LiFaCo"
 description="Fan control"
 command="/usr/local/bin/fancontrol-linuxd"
 command_background=true

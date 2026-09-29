@@ -1,4 +1,4 @@
-"""App-wide styling: base layout CSS plus a colour theme (preset or custom) chosen on the Design page.
+"""App-wide styling: base layout CSS plus a colour theme (preset or custom) chosen under Settings → Appearance.
 
 "Midnight" themes use a dark navy look with an accent gradient that is applied to curves, gauges, switches
 and buttons. Classic themes colour the cards and the header bar with solid colours.
@@ -53,6 +53,8 @@ PALETTES = {
     "custom": {"name": "Custom colours", "group": "custom", "dark": False},
 }
 DEFAULT_PALETTE = "midnight_aurora"
+# Colours for individual fan and curve cards (in this order).
+ITEM_COLORS = ["#3b82f6", "#22c55e", "#a855f7", "#8b5cf6", "#14b8a6", "#f59e0b", "#ec4899", "#06b6d4"]
 DEFAULT_CUSTOM = {"accent": "#f7cf3b", "accent2": "#f7cf3b", "card": "#0b3183", "header": "#0d3a8c"}
 
 BASE_CSS = """
@@ -73,6 +75,37 @@ BASE_CSS = """
     box-shadow: 0 3px 8px alpha(black, 0.35); }
 .fc-fab image { -gtk-icon-size: 24px; }
 .fc-hidden { opacity: 0.55; }
+.fc-card .fc-huge { font-size: 1.7em; font-weight: 700; }
+.fc-card .fc-unit { font-size: 0.85em; opacity: 0.7; }
+.fc-card .fc-percent { font-size: 1.1em; font-weight: 600; }
+.fc-card-title { font-weight: 700; }
+.fc-icon-bubble { min-width: 40px; min-height: 40px; border-radius: 999px;
+    background-color: alpha(@accent_bg_color, 0.16); color: @accent_bg_color; }
+.fc-dim-icon { opacity: 0.55; }
+.fc-detail-row { min-height: 32px; }
+.fc-detail-label { opacity: 0.85; }
+.fc-detail-value { font-weight: 600; }
+.fc-details { border-top: 1px solid alpha(currentColor, 0.1); padding-top: 8px; }
+.fc-details-toggle { font-size: 0.85em; padding: 2px 6px; min-height: 24px; }
+.fc-chart-placeholder { min-height: 60px; }
+.fc-tile { padding: 10px 12px; }
+.fc-new-tile { border: 1px dashed alpha(currentColor, 0.3); border-radius: 12px; min-height: 58px; }
+.fc-notice { padding: 16px; }
+.fc-section-title { font-size: 1.45em; font-weight: 800; }
+.fc-section-subtitle { opacity: 0.6; }
+.fc-app-title { font-weight: 800; font-size: 1.05em; }
+.fc-app-subtitle { font-size: 0.78em; opacity: 0.6; }
+.fc-stat-value { font-weight: 700; font-size: 0.95em; }
+.fc-stat-caption { font-size: 0.72em; opacity: 0.6; }
+.fc-stat { padding: 0 10px; border-left: 1px solid alpha(currentColor, 0.12); }
+.fc-nav { padding: 12px; }
+.fc-nav-header { padding: 6px 4px 14px 4px; }
+.fc-nav-list row { padding: 12px 10px; border-radius: 12px; margin: 3px 0; }
+.fc-nav-list row:selected { background-color: alpha(@accent_bg_color, 0.18);
+    box-shadow: inset 0 0 0 1px alpha(@accent_bg_color, 0.45); }
+.fc-nav-list row image { -gtk-icon-size: 20px; }
+.fc-nav-profile { border-radius: 12px; padding: 8px 10px; border: 1px solid alpha(currentColor, 0.12); }
+.fc-settings-bar { padding: 8px 16px; border-bottom: 1px solid alpha(currentColor, 0.1); }
 flowbox.fc-cards > flowboxchild { padding: 0; background: none; }
 .fc-chip { padding: 2px 8px; border-radius: 999px; background: alpha(currentColor, 0.1); }
 """
@@ -164,6 +197,9 @@ window.background, .fc-body {{ background-color: {m['window']}; color: {m['fg']}
             fg = _text_on(pal["header"])
             css.append(f".fc-header {{ background-color: {pal['header']}; color: {fg}; }}\n"
                        f".fc-header button, .fc-header label {{ color: {fg}; }}")
+    if pal.get("item_colors"):
+        for i, color in enumerate(pal["item_colors"]):
+            css.append(f".fc-color-{i} .fc-icon-bubble {{ background-color: alpha({color}, 0.16); color: {color}; }}")
     if accent and len(accent) > 1:
         grad = gradient_css(accent)
         css.append(f"""
@@ -184,7 +220,9 @@ class Theme:
         self.header_widgets = []
 
     def apply(self, prefs):
-        pal = palette(prefs)
+        pal = dict(palette(prefs))
+        if prefs.get("item_colors") is not False:
+            pal["item_colors"] = ITEM_COLORS
         if pal.get("dark"):
             scheme = Adw.ColorScheme.FORCE_DARK  # the midnight look is dark by design
         else:
@@ -198,3 +236,4 @@ class Theme:
             else:
                 widget.remove_css_class("fc-header")
         paint.gradient = [_hex_to_rgba(c) for c in pal["accent"]] if pal.get("accent") else None
+        paint.item_colors = [_hex_to_rgba(c) for c in pal["item_colors"]] if pal.get("item_colors") else None

@@ -9,6 +9,8 @@ from gi.repository import Adw, Gdk, Graphene, Gsk  # noqa: E402
 
 # Set by the theme: list of Gdk.RGBA (1 = solid accent, more = gradient). None = desktop accent colour.
 gradient = None
+# Set by the theme: one colour per card (fan/curve) so every item is recognisable; None = use the gradient.
+item_colors = None
 
 
 def rgba(red, green, blue, alpha=1.0):
@@ -28,6 +30,13 @@ def with_alpha(c, alpha):
     return rgba(c.red, c.green, c.blue, alpha)
 
 
+def item(index):
+    """Colours for the index-th card: its own colour, or the theme gradient."""
+    if item_colors:
+        return [item_colors[index % len(item_colors)]]
+    return colors()
+
+
 def colors():
     if gradient:
         return gradient
@@ -37,9 +46,9 @@ def colors():
     return [rgba(0.21, 0.52, 0.89)]
 
 
-def color_at(t):
+def color_at(t, palette=None):
     """Colour of the gradient at position t (0..1)."""
-    stops = colors()
+    stops = palette or colors()
     if len(stops) == 1:
         return stops[0]
     t = max(0.0, min(1.0, t)) * (len(stops) - 1)
@@ -50,9 +59,9 @@ def color_at(t):
                 a.blue + (b.blue - a.blue) * f, a.alpha + (b.alpha - a.alpha) * f)
 
 
-def _stops(alpha):
+def _stops(alpha, palette=None):
     result = []
-    items = colors()
+    items = palette or colors()
     for i, c in enumerate(items):
         stop = Gsk.ColorStop()
         stop.offset = i / (len(items) - 1) if len(items) > 1 else 0.0
@@ -65,12 +74,12 @@ def _stops(alpha):
     return result
 
 
-def _horizontal(snap, x, y, w, h, alpha):
+def _horizontal(snap, x, y, w, h, alpha, palette=None):
     snap.append_linear_gradient(Graphene.Rect().init(x, y, w, h), Graphene.Point().init(x, y),
-                                Graphene.Point().init(x + w, y), _stops(alpha))
+                                Graphene.Point().init(x + w, y), _stops(alpha, palette))
 
 
-def stroke(snap, path, width, bounds, alpha=1.0, dash=None):
+def stroke(snap, path, width, bounds, alpha=1.0, dash=None, palette=None):
     """Stroke a path with the gradient running left to right across bounds (x, y, w, h)."""
     s = Gsk.Stroke.new(width)
     s.set_line_cap(Gsk.LineCap.ROUND)
@@ -78,11 +87,11 @@ def stroke(snap, path, width, bounds, alpha=1.0, dash=None):
     if dash:
         s.set_dash(dash)
     snap.push_stroke(path, s)
-    _horizontal(snap, *bounds, alpha)
+    _horizontal(snap, *bounds, alpha, palette)
     snap.pop()
 
 
-def fill(snap, path, bounds, alpha=1.0, fade=True):
+def fill(snap, path, bounds, alpha=1.0, fade=True, palette=None):
     """Fill a path with the gradient; with fade the fill becomes transparent towards the bottom."""
     x, y, w, h = bounds
     snap.push_fill(path, Gsk.FillRule.WINDING)
@@ -93,10 +102,10 @@ def fill(snap, path, bounds, alpha=1.0, fade=True):
                                     Graphene.Point().init(x, y + h),
                                     [_stop(0.0, rgba(0, 0, 0, 1.0)), _stop(1.0, rgba(0, 0, 0, 0.0))])
         snap.pop()
-        _horizontal(snap, x, y, w, h, alpha)
+        _horizontal(snap, x, y, w, h, alpha, palette)
         snap.pop()
     else:
-        _horizontal(snap, x, y, w, h, alpha)
+        _horizontal(snap, x, y, w, h, alpha, palette)
     snap.pop()
 
 

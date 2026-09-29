@@ -4,7 +4,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Graphene, Gsk, Gtk  # noqa: E402
+from gi.repository import Graphene, Gsk, Gtk, Pango  # noqa: E402
 
 from . import paint  # noqa: E402
 from .paint import rgba  # noqa: E402
@@ -12,6 +12,7 @@ from .util import c_to_disp, temp_unit  # noqa: E402
 
 FULL_MARGINS = (54, 16, 14, 32)
 COMPACT_MARGINS = (2, 2, 8, 2)
+MINI_MARGINS = (36, 6, 8, 18)
 HIT_RADIUS = 10
 MIN_POINTS = 2
 
@@ -35,12 +36,15 @@ def _circle(x, y, r):
 
 
 class GraphEditor(Gtk.Widget):
-    def __init__(self, points, on_changed=None, editable=True, compact=False, temp_range=None, rpm=False):
+    def __init__(self, points, on_changed=None, editable=True, compact=False, temp_range=None, rpm=False,
+                 mini_axes=False, palette=None):
         super().__init__()
         self.rpm = rpm
         self.fixed_range = temp_range
         self.compact = compact
-        self.margins = COMPACT_MARGINS if compact else FULL_MARGINS
+        self.mini_axes = mini_axes  # small card chart with a few axis labels
+        self.palette = palette      # explicit colours (per card), else the theme gradient
+        self.margins = MINI_MARGINS if mini_axes else COMPACT_MARGINS if compact else FULL_MARGINS
         self.points = points  # list of [temp, speed], edited in place
         self.on_changed = on_changed
         self.editable = editable
@@ -49,7 +53,7 @@ class GraphEditor(Gtk.Widget):
         self.drag_index = None
         self.hover_index = None
         self._drag_origin = None
-        self.set_size_request(-1, 70 if compact else 300)
+        self.set_size_request(-1, 110 if mini_axes else 70 if compact else 300)
         self.set_hexpand(True)
         self._fit_range()
 
@@ -174,6 +178,10 @@ class GraphEditor(Gtk.Widget):
     # --- drawing --------------------------------------------------------
     def _text(self, snap, text, x, y, color, anchor="left"):
         layout = self.create_pango_layout(text)
+        if self.mini_axes:
+            desc = Pango.FontDescription.from_string("Sans")
+            desc.set_absolute_size(9 * Pango.SCALE)
+            layout.set_font_description(desc)
         w, h = layout.get_pixel_size()
         dx = {"left": 0, "center": -w / 2, "right": -w}[anchor]
         snap.save()
@@ -188,8 +196,18 @@ class GraphEditor(Gtk.Widget):
         t0, t1 = self.temp_range
         grid, dim = _rgba(fg, 0.12), _rgba(fg, 0.6)
 
+        if self.mini_axes:
+            for value in (0, self.y_max / 2, self.y_max):
+                _, sy = self._to_screen(t0, value)
+                snap.append_color(grid, Graphene.Rect().init(x, sy, w, 1))
+                self._text(snap, self._fmt_y(value).replace(" RPM", "").replace(" %", "%"), x - 6, sy, dim, "right")
+            for t in (t0, (t0 + t1) / 2, t1):
+                sx, _ = self._to_screen(t, 0)
+                snap.append_color(grid, Graphene.Rect().init(sx, y, 1, h))
+                self._text(snap, f"{c_to_disp(t):.0f}{temp_unit()}", sx, y + h + 9, dim,
+                           "left" if t == t0 else "right" if t == t1 else "center")
         for i in range(6):
-            if self.compact:
+            if self.compact or self.mini_axes:
                 break
             value = self.y_max * i / 5
             _, sy = self._to_screen(t0, value)
@@ -197,7 +215,7 @@ class GraphEditor(Gtk.Widget):
             self._text(snap, self._fmt_y(value).replace(" RPM", ""), x - 8, sy, dim, "right")
         step = 10
         t = (int(t0) // step + (1 if t0 % step else 0)) * step
-        while t <= t1 and not self.compact:
+        while t <= t1 and not self.compact and not self.mini_axes:
             sx, _ = self._to_screen(t, 0)
             snap.append_color(grid, Graphene.Rect().init(sx, y, 1, h))
             self._text(snap, f"{c_to_disp(t):.0f}°", sx, y + h + 14, dim, "center")
@@ -214,13 +232,15 @@ class GraphEditor(Gtk.Widget):
         area.line_to(screen[0][0], y + h)
         area.close()
         bounds = (x, y, w, h)
-        paint.fill(snap, area.to_path(), bounds, alpha=0.45 if self.compact else 0.35)
-        paint.stroke(snap, _line_path(screen).to_path(), 2 if self.compact else 2.5, bounds)
+        paint.fill(snap, area.to_path(), bounds, alpha=0.45 if self.compact or self.mini_axes else 0.35,
+                   palette=self.palette)
+        paint.stroke(snap, _line_path(screen).to_path(), 2 if self.compact or self.mini_axes else 2.5, bounds,
+                     palette=self.palette)
 
         def dot_color(px):
-            return paint.color_at((px - x) / w if w else 0)
+            return paint.color_at((px - x) / w if w else 0, self.palette)
 
-        if self.compact:
+        if self.compact or self.mini_axes:
             if self.live:
                 temp, out = self.live
                 lx, ly = self._to_screen(max(t0, min(t1, temp)), min(out, self.y_max))
@@ -267,3 +287,23 @@ class GraphEditor(Gtk.Widget):
         snap.translate(Graphene.Point().init(bx, by))
         snap.append_layout(layout, rgba(1, 1, 1, 1))
         snap.restore()
+
+
+def preview_points(curve):
+    """(points, temperature range, rpm) to draw a curve on a card, or None for curves without a fixed shape."""
+    kind, rpm = curve["type"], curve.get("unit") == "rpm"
+    if kind == "graph":
+        return [list(p) for p in curve["points"]], tuple(curve.get("temp_axis", (10, 100))), rpm
+    if kind == "linear":
+        lo, hi = curve["temp_min"], curve["temp_max"]
+        return [[lo, curve["speed_min"]], [hi, curve["speed_max"]]], (lo - 10, hi + 10), rpm
+    if kind == "flat":
+        return [[20, curve["value"]], [90, curve["value"]]], (20, 90), rpm
+    if kind == "trigger":
+        idle, load = curve["idle_temp"], curve["load_temp"]
+        return ([[idle, curve["idle_speed"]], [load, curve["idle_speed"]], [load + 0.1, curve["load_speed"]]],
+                (idle - 15, load + 15), rpm)
+    if kind == "auto":
+        idle, load = curve["idle_temp"], curve["load_temp"]
+        return [[idle, curve["min_speed"]], [load, curve["max_speed"]]], (idle - 10, load + 15), rpm
+    return None

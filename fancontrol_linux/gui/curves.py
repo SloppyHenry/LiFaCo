@@ -9,7 +9,8 @@ from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
 from .. import config as cfgmod  # noqa: E402
 from ..curves import TEMP_CURVES  # noqa: E402
 from . import common as ui  # noqa: E402
-from .graph_editor import GraphEditor  # noqa: E402
+from . import paint  # noqa: E402
+from .graph_editor import GraphEditor, preview_points  # noqa: E402
 from .util import (combo_row, delta_to_disp, entry_row, fmt_pct, fmt_temp, spin_row, switch_row,  # noqa: E402
                    temp_spin_row, temp_unit, value_label)
 
@@ -52,6 +53,7 @@ HYST_HELP = ("Hysteresis: the curve only reacts once the temperature has changed
              "(separately for rising ↑ and falling ↓). Response time: how long the change must persist.")
 SENSOR_MIX = [("max", "Maximum"), ("min", "Minimum"), ("avg", "Average")]
 CURVE_MIX = [("max", "Maximum"), ("min", "Minimum"), ("avg", "Average"), ("sum", "Sum"), ("sub", "Subtract")]
+CURVE_TILE_WIDTH = 250
 CURVES_HELP = (
     "Curves calculate the fan speed in percent – or, in RPM mode, a speed that calibrated fans then "
     "target. A curve can be assigned to several fans.\n\n"
@@ -95,19 +97,14 @@ class CurvesPage(Adw.Bin):
         win = self.win
         self.live = {}
         if win.config is None:
-            self.set_child(ui.status_page("Connecting to the service …", "", "network-transmit-receive-symbolic"))
+            self.set_child(ui.notice("Connecting to the service …", "network-transmit-receive-symbolic"))
             return
-        page, flow = ui.grid_page("Curves", CURVES_HELP)
+        flow = ui.CardFlow(width=CURVE_TILE_WIDTH)
         visible = [c for c in win.config["curves"] if win.is_visible_item(c["id"])]
-        for curve in visible:
-            flow.append(self._card(curve))
-        overlay = Gtk.Overlay(child=page)
-        if not visible:
-            overlay.add_overlay(Gtk.Label(label="No curves yet – add one with +.", css_classes=["dim-label"],
-                                          halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER))
-        overlay.add_overlay(ui.fab("Add curve", [(TYPE_ICONS[k], n, lambda k=k: self.add(k))
-                                                        for k, n in TYPE_NAMES.items()]))
-        self.set_child(overlay)
+        for index, curve in enumerate(visible):
+            flow.append(self._tile(curve, index))
+        flow.append(self._new_tile())
+        self.set_child(flow)
         self.update_live()
 
     def add(self, kind):
@@ -163,170 +160,80 @@ class CurvesPage(Adw.Bin):
         dialog.add_response("ok", "OK")
         dialog.present(self.win)
 
-    # --- cards ----------------------------------------------------------
-    def _card(self, curve):
+    # --- tiles --------------------------------------------------------
+    def _users(self, curve):
+        return [self.win.display_name(x["id"]).rpartition(": ")[2] for x in self.win.config["controls"]
+                if x["curve"] == curve["id"] and x["mode"] == "curve"]
+
+    def _tile(self, curve, index):
         win = self.win
-        changed = win.config_changed
+        palette = paint.item(index)
+        tile = ui.card(hidden=curve["id"] in win.config["hidden"], color_index=index)
+        tile.add_css_class("fc-tile")
+        row = Gtk.Box(spacing=12)
+        preview = preview_points(curve)
+        if preview:
+            points, temp_range, rpm = preview
+            icon = GraphEditor(points, editable=False, compact=True, temp_range=temp_range, rpm=rpm,
+                               palette=palette)
+            icon.set_size_request(48, 34)
+            icon.set_hexpand(False)
+            icon.set_valign(Gtk.Align.CENTER)
+            row.append(icon)
+        else:
+            row.append(ui.icon_bubble(TYPE_ICONS[curve["type"]]))
+        names = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True, valign=Gtk.Align.CENTER)
+        names.append(Gtk.Label(label=curve["name"], xalign=0, ellipsize=3, css_classes=["fc-card-title"]))
+        users = self._users(curve)
+        sub = Gtk.Label(label=", ".join(users) if users else TYPE_NAMES[curve["type"]], xalign=0, ellipsize=3,
+                        css_classes=["fc-caption"],
+                        tooltip_text=TYPE_NAMES[curve["type"]] + (" · used by " + ", ".join(users) if users else ""))
+        names.append(sub)
+        row.append(names)
+        value = Gtk.Label(css_classes=["fc-caption", "numeric"], valign=Gtk.Align.CENTER)
+        row.append(value)
+        row.append(ui.card_menu(tile, [("Edit …", lambda: self.open_editor(curve)),
+                                       ("Duplicate", lambda: self._duplicate(curve)),
+                                       ("Help", lambda: self.show_help(curve)),
+                                       ui.hidden_menu_item(win, curve["id"]),
+                                       ("Delete", lambda: self.delete(curve))]))
+        row.append(Gtk.Image(icon_name="go-next-symbolic", css_classes=["fc-dim-icon"]))
+        tile.append(row)
+        def clicked(gesture, _n, x, y):
+            target = gesture.get_widget().pick(x, y, Gtk.PickFlags.DEFAULT)
+            # Clicks on the ⋮ menu belong to the menu, not to the tile.
+            if target is None or target.get_ancestor(Gtk.MenuButton) is None:
+                self.open_editor(curve)
+        click = Gtk.GestureClick()
+        click.connect("released", clicked)
+        tile.add_controller(click)
+        tile.set_cursor(Gdk.Cursor.new_from_name("pointer"))
+        tile.set_tooltip_text(f"{TYPE_NAMES[curve['type']]} – click to edit")
+        self.live[curve["id"]] = (value, curve)
+        return tile
 
-        def setter(key, rebuild=None):
-            def apply(value):
-                curve[key] = value
-                changed(rebuild=rebuild)
-            return apply
-
-        def rename(text):
-            if text:
-                curve["name"] = text
-                changed(rebuild={"controls"})
-
-        c = ui.card(hidden=curve["id"] in win.config["hidden"])
-        ui.card_header(c, TYPE_ICONS[curve["type"]], ui.name_entry(curve["name"], "Name", rename),
-                       [("Edit …", lambda: self.open_editor(curve)),
-                        ("Duplicate", lambda: self._duplicate(curve)),
-                        ui.hidden_menu_item(win, curve["id"]),
-                        ("Delete", lambda: self.delete(curve))],
-                       icon_tooltip=f"{TYPE_NAMES[curve['type']]} – help", on_icon=lambda: self.show_help(curve))
-
-        kind = curve["type"]
-        top, step = _speed_top(curve), _speed_step(curve)
-        if kind in TEMP_CURVES:
-            c.append(self._sensor_picker(curve))
-        elif kind == "mix":
-            keys = [k for k, _ in CURVE_MIX]
-            c.append(ui.labeled("Function", ui.dropdown([n for _, n in CURVE_MIX],
-                                                        keys.index(curve["function"]) if curve["function"] in keys else 0,
-                                                        lambda i: setter("function")(keys[i]))))
-            choices = [(o["id"], o["name"]) for o in win.config["curves"] if o["id"] != curve["id"]]
-            ui.picker_list(c, win, list(curve["curves"]), choices, lambda v: setter("curves", {"curves"})(v),
-                           "No curves selected – fans run at 100 %")
-        elif kind == "flat":
-            c.append(ui.labeled(_speed_caption(curve, "Speed"), ui.spin(curve["value"], 0, top, step, setter("value"))))
-        elif kind == "sync":
-            pwms = list((win.status or {}).get("pwms", {}))
-            if curve["control"] and curve["control"] not in pwms:
-                pwms.append(curve["control"])
-            c.append(ui.labeled("Control", ui.dropdown(
-                [win.display_name(p) for p in pwms] or ["No controls"],
-                pwms.index(curve["control"]) if curve["control"] in pwms else 0,
-                lambda i: pwms and setter("control")(pwms[i]))))
-            grid = Gtk.Grid(column_spacing=10, row_spacing=8, column_homogeneous=True)
-            grid.attach(ui.labeled("Offset %", ui.spin(curve["offset"], -100, 100, 1, setter("offset"), 1)), 0, 0, 1, 1)
-            grid.attach(ui.switch_line("Proportional", curve["proportional"], setter("proportional"),
-                                       "Offset as a percentage of the source value"), 1, 0, 1, 1)
-            c.append(grid)
-
-        values = Gtk.Box(spacing=8)
-        out = Gtk.Label(css_classes=["fc-big", "numeric"], xalign=0)
-        temp = Gtk.Label(css_classes=["fc-caption", "numeric"], xalign=0, hexpand=True, valign=Gtk.Align.CENTER)
-        values.append(out)
-        values.append(temp)
-        edit = Gtk.Button(label="Edit", css_classes=["flat"], valign=Gtk.Align.CENTER)
-        edit.connect("clicked", lambda *_: self.open_editor(curve))
-        values.append(edit)
-        c.append(values)
-
-        graph = None
-        rpm = curve.get("unit") == "rpm"
-        if kind == "graph":
-            graph = GraphEditor(curve["points"], editable=False, compact=True, temp_range=curve["temp_axis"], rpm=rpm)
-            click = Gtk.GestureClick()
-            click.connect("released", lambda *_: self.open_editor(curve))
-            graph.add_controller(click)
-            graph.set_tooltip_text("Click to edit")
-            graph.set_cursor(Gdk.Cursor.new_from_name("pointer"))
-            c.append(graph)
-        elif kind == "linear":
-            preview = [[curve["temp_min"], curve["speed_min"]], [curve["temp_max"], curve["speed_max"]]]
-            graph = GraphEditor(preview, editable=False, compact=True, rpm=rpm)
-            c.append(graph)
-            grid = Gtk.Grid(column_spacing=10, row_spacing=8, column_homogeneous=True)
-
-            def lin(key, idx):
-                def apply(value):
-                    curve[key] = value
-                    preview[idx[0]][idx[1]] = value
-                    graph.refresh()
-                    changed()
-                return apply
-            fields = [(ui.tlabel("Min. Temp."), "temp_min", True, (0, 0)),
-                      (ui.tlabel("Max. Temp."), "temp_max", True, (1, 0)),
-                      (_speed_caption(curve, "Min. speed"), "speed_min", False, (0, 1)),
-                      (_speed_caption(curve, "Max. speed"), "speed_max", False, (1, 1))]
-            for i, (text, key, is_temp, idx) in enumerate(fields):
-                widget = (ui.temp_spin(curve[key], -20, 150, lin(key, idx)) if is_temp
-                          else ui.spin(curve[key], 0, top, step, lin(key, idx)))
-                grid.attach(ui.labeled(text, widget), i % 2, i // 2, 1, 1)
-            c.append(grid)
-        elif kind in ("trigger", "auto"):
-            grid = Gtk.Grid(column_spacing=10, row_spacing=8, column_homogeneous=True)
-            speed_keys = ("idle_speed", "load_speed") if kind == "trigger" else ("min_speed", "max_speed")
-            speed_names = ("Idle", "Load") if kind == "trigger" else ("Min.", "Max.")
-            fields = [(ui.tlabel("Idle"), "idle_temp", True),
-                      (_speed_caption(curve, speed_names[0]), speed_keys[0], False),
-                      (ui.tlabel("Load" if kind == "trigger" else "Target (load)"), "load_temp", True),
-                      (_speed_caption(curve, speed_names[1]), speed_keys[1], False)]
-            for i, (text, key, is_temp) in enumerate(fields):
-                widget = (ui.temp_spin(curve[key], -20, 150, setter(key)) if is_temp
-                          else ui.spin(curve[key], 0, top, step, setter(key)))
-                grid.attach(ui.labeled(text, widget), i % 2, i // 2, 1, 1)
-            if kind == "auto":
-                grid.attach(ui.labeled(_speed_caption(curve, "Step") + "/s",
-                                       ui.spin(curve["step"], 0.1, 100 if not rpm else 2000, 0.5, setter("step"), 1)),
-                            0, 2, 1, 1)
-                grid.attach(ui.labeled(ui.tlabel("Deadband"),
-                                       ui.temp_spin(curve["deadband"], 0, 20, setter("deadband"), delta=True, digits=1)),
-                            1, 2, 1, 1)
-            c.append(grid)
-
-        if kind in ("graph", "linear"):
-            c.append(ui.caption("Hysteresis  " + hysteresis_summary(curve)))
-        elif kind == "trigger":
-            c.append(ui.caption(f"Response time ↑ {curve['response_up']:g} s  ↓ {curve['response_down']:g} s"))
-        if rpm:
-            c.append(ui.caption("RPM mode – calibrated fans only"))
-
-        users = [win.display_name(x["id"]) for x in win.config["controls"]
-                 if x["curve"] == curve["id"] and x["mode"] == "curve"]
-        c.append(ui.caption("Used by: " + (", ".join(users) if users else "–")))
-        self.live[curve["id"]] = (out, temp, graph, curve)
-        return c
-
-    def _sensor_picker(self, curve):
-        win = self.win
-        temps = win.status["temps"] if win.status else {}
-        if len(curve["sensors"]) > 1:
-            mix = dict(SENSOR_MIX).get(curve["sensor_mix"], curve["sensor_mix"])
-            return ui.labeled("Temperature source",
-                              Gtk.Label(label=f"{len(curve['sensors'])} sensors ({mix}) – change via “Edit”",
-                                        xalign=0, wrap=True, max_width_chars=30))
-        ids = list(temps)
-        missing = [s for s in curve["sensors"] if s not in temps]
-        labels = [win.display_name(s) for s in ids] + [f"{s} (fehlt)" for s in missing]
-        ids += missing
-        if not curve["sensors"]:
-            ids, labels = [None] + ids, ["Choose sensor …"] + labels
-        current = curve["sensors"][0] if curve["sensors"] else None
-
-        def pick(i):
-            if ids[i] is not None:
-                curve["sensors"] = [ids[i]]
-                win.config_changed(rebuild={"curves"} if current is None else None)
-        dd = ui.dropdown(labels, ids.index(current) if current in ids else 0, pick)
-        dd.set_tooltip_text("Combine several sensors: “Edit”")
-        return ui.labeled("Temperature source", dd)
+    def _new_tile(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=6, margin_bottom=6,
+                      margin_start=6, margin_end=6)
+        popover = Gtk.Popover(child=box)
+        for kind, name in TYPE_NAMES.items():
+            b = Gtk.Button(child=Adw.ButtonContent(icon_name=TYPE_ICONS[kind], label=name, halign=Gtk.Align.START),
+                           css_classes=["flat"])
+            b.connect("clicked", lambda _b, k=kind: (popover.popdown(), self.add(k)))
+            box.append(b)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, halign=Gtk.Align.CENTER)
+        content.append(Gtk.Image(icon_name="list-add-symbolic", pixel_size=18))
+        content.append(Gtk.Label(label="Create new curve", css_classes=["fc-caption"]))
+        return Gtk.MenuButton(child=content, popover=popover, css_classes=["flat", "fc-new-tile"],
+                              tooltip_text="Add a curve")
 
     def update_live(self):
         st = self.win.status
         if not st:
             return
-        for cid, (out, temp, graph, curve) in self.live.items():
+        for cid, (value, curve) in self.live.items():
             info = st["curves"].get(cid) or {}
-            out.set_label("100 % (failsafe)" if info.get("failsafe") else _speed_fmt(curve, info.get("output")))
-            out.set_tooltip_text("Sensor missing or source unavailable – fans run at full speed"
-                                 if info.get("failsafe") else None)
-            temp.set_label(fmt_temp(info["temp"]) if info.get("temp") is not None else "")
-            if graph:
-                graph.set_live(info.get("temp"), info.get("output"))
+            value.set_label("100 %" if info.get("failsafe") else _speed_fmt(curve, info.get("output")))
         if self.dialog:
             self.dialog.update_live()
 
