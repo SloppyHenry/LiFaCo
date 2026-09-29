@@ -1,6 +1,10 @@
-# LiFaCo
+<p align="center">
+  <img src="data/io.github.fancontrol_linux.svg" width="128" alt="LiFaCo logo">
+</p>
 
-**Li**nux **Fa**n **Co**ntrol – *Cool. Quiet. In control.*
+<h1 align="center">LiFaCo</h1>
+
+<p align="center"><b>Li</b>nux <b>Fa</b>n <b>Co</b>ntrol – <i>Cool. Quiet. In control.</i></p>
 
 Fan control for Linux with fan cards, curves, custom sensors, profiles, calibration, colour themes and tray icons,
 inspired by [FanControl](https://getfancontrol.com) for Windows. LiFaCo is an independent implementation: the

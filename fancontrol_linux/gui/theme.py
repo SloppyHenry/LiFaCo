@@ -211,7 +211,9 @@ scale > trough > highlight, checkbutton check:checked {{ background-image: {grad
 class Theme:
     def __init__(self):
         display = Gdk.Display.get_default()
-        Gtk.IconTheme.get_for_display(display).add_search_path(ICON_DIR)
+        # Our own icons first, so an older installed copy of the app icon cannot shadow them.
+        icons = Gtk.IconTheme.get_for_display(display)
+        icons.set_search_path([ICON_DIR] + [p for p in icons.get_search_path() or [] if p != ICON_DIR])
         self.base = Gtk.CssProvider()
         self.base.load_from_string(BASE_CSS)
         self.palette = Gtk.CssProvider()

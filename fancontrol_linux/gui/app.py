@@ -109,7 +109,7 @@ class MainWindow(Adw.ApplicationWindow):
         # Header: app title on the left; live values, profile and the menu button on the right.
         header = Adw.HeaderBar(show_title=False)
         title = Gtk.Box(spacing=10, margin_start=6)
-        title.append(ui.icon_bubble("fc-fan-symbolic", 20))
+        title.append(Gtk.Image(icon_name=APP_ID, pixel_size=36))
         names = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
         names.append(Gtk.Label(label="LiFaCo", xalign=0, css_classes=["fc-app-title"]))
         names.append(Gtk.Label(label="Cool. Quiet. In control.", xalign=0, css_classes=["fc-app-subtitle"]))
