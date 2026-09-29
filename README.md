@@ -79,18 +79,6 @@ header is "CPU_FAN" or "SYS_FAN2" is not reported by the hardware – use **Iden
 - The service runs as root, the user interface as a normal user. Only members of the `fancontrol` group can talk to
   the service, and every configuration is validated. File sensors may only read from approved directories.
 
-### Compared with FanControl for Windows
-
-Every feature from the release notes up to V281 was taken over where it makes sense on Linux.
-These parts are intentionally different:
-
-| Original | LiFaCo |
-|---|---|
-| Plugins (.NET DLLs) | Built-in Linux backends (see below), file sensors and `lifacoctl` for your own scripts |
-| LibreHardwareMonitor, PawnIO/WinRing0, ADLX | Linux kernel drivers (hwmon), NVML, liquidctl |
-| Updater, signing, .NET versions | `install.sh`, AppImage and `lifaco-upgrade` |
-| Translations | English user interface |
-
 ## Supported hardware
 
 | Device group (Windows plugin) | On Linux | Control | Monitor |
