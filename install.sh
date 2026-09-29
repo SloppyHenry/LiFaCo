@@ -2,6 +2,8 @@
 # LiFaCo – installer for Debian/Ubuntu/Mint, Fedora/RHEL, Arch/Manjaro, openSUSE, Void, Alpine, Gentoo.
 # Installs the program, dependencies, hardware drivers and the background service (systemd, OpenRC or runit).
 set -euo pipefail
+# Note: never pipe into "grep -q" here – it exits on the first match, the writer gets SIGPIPE (141)
+# and pipefail turns a match into a failure. Use "grep ... >/dev/null" instead.
 
 PREFIX=/usr/local
 LIBDIR="$PREFIX/lib/fancontrol-linux"
@@ -292,7 +294,7 @@ ok "Program, commands, menu entry"
 
 # liquidctl not packaged? Then install it into a private Python environment (only if matching USB devices are present).
 LIQUID_VENDORS="1e71|1b1c|3842|1044|0db0|0cf2|2433"
-if [[ $INSTALL_DEPS -eq 1 ]] && ! have_liquidctl && lsusb 2>/dev/null | grep -qiE "ID ($LIQUID_VENDORS):"; then
+if [[ $INSTALL_DEPS -eq 1 ]] && ! have_liquidctl && lsusb 2>/dev/null | grep -iE "ID ($LIQUID_VENDORS):" >/dev/null; then
     if ask "USB cooling devices found but liquidctl is missing. Install it into a private Python environment (pip)?" y; then
         if python3 -m venv --system-site-packages "$LIBDIR/venv" >>"$LOG" 2>&1 \
             && "$LIBDIR/venv/bin/pip" install --quiet liquidctl >>"$LOG" 2>&1; then
@@ -312,7 +314,7 @@ getent group fancontrol >/dev/null || groupadd --system fancontrol 2>/dev/null |
 TARGET_USER="${SUDO_USER:-}"
 RELOGIN=0
 if [[ -n "$TARGET_USER" && "$TARGET_USER" != root ]]; then
-    if ! id -nG "$TARGET_USER" | tr ' ' '\n' | grep -qx fancontrol; then
+    if ! id -nG "$TARGET_USER" | tr ' ' '\n' | grep -x fancontrol >/dev/null; then
         usermod -aG fancontrol "$TARGET_USER" 2>/dev/null || addgroup "$TARGET_USER" fancontrol
         RELOGIN=1
     fi
@@ -370,7 +372,7 @@ if [[ $SETUP_HARDWARE -eq 1 ]]; then
     fi
 
     # Known conflicts with ACPI: it87/nct6775 are not loaded then.
-    if dmesg 2>/dev/null | grep -qiE "(it87|nct6775).*(resource conflict|ACPI)"; then
+    if dmesg 2>/dev/null | grep -iE "(it87|nct6775).*(resource conflict|ACPI)" >/dev/null; then
         CONFLICT=1
     fi
     if [[ ${ITE_UNSUPPORTED:-0} -eq 1 || ( ${CONFLICT:-0} -eq 1 && $(pwm_count) -eq 0 ) ]]; then
@@ -426,7 +428,7 @@ if [[ $SETUP_HARDWARE -eq 1 ]]; then
     GPUS=$(lspci -nn 2>/dev/null | grep -E '\[03[0-9a-f]{2}\]' || true)
     if grep -q '\[10de:' <<<"$GPUS"; then
         if [[ -d /sys/module/nvidia ]]; then
-            if ldconfig -p 2>/dev/null | grep -q 'libnvidia-ml.so.1'; then
+            if ldconfig -p 2>/dev/null | grep 'libnvidia-ml.so.1' >/dev/null; then
                 ok "NVIDIA: driver and NVML present – fans controllable"
             else
                 hint "NVIDIA: libnvidia-ml is missing (part of the NVIDIA driver package, e.g. libnvidia-compute-* / nvidia-utils)"
