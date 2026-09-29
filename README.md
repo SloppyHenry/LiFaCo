@@ -16,8 +16,8 @@ original is closed source, so no code was taken from it.
 |---|---|
 | ![Settings](docs/settings.png) | ![Neon](docs/neon.png) |
 
-> LiFaCo was previously called *Linux FanControl* (repository `SloppyHenry/FanControlLinux`). Existing
-> installations move over with `sudo fancontrol-linux-upgrade`; see [Upgrading](#upgrading).
+> LiFaCo was previously called *Linux FanControl*. Existing installations move over with one command; see
+> [Upgrading](#upgrading).
 
 ## Features
 
@@ -202,11 +202,15 @@ The upgrade script detects whether LiFaCo was installed from source or from the 
 the matching release from GitHub (AppImage downloads are checked against their SHA-256 checksum). Configuration,
 profiles and driver settings are kept, and the service is restarted. Afterwards restart the user interface.
 
-**Coming from Linux FanControl (1.x)?** Run `sudo fancontrol-linux-upgrade` once. It installs LiFaCo 2.0,
-which fetches all further updates from this repository and adds the `lifaco*` commands. Configuration and
-profiles are kept – the technical names (service `fancontrol-linux`, group `fancontrol`, paths) did not change.
-Installations of version 1.0.0 do not have the upgrade command yet; run `sudo ./upgrade.sh` once from a checkout
-of this repository.
+**Coming from Linux FanControl (1.x)?** Run once:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SloppyHenry/LiFaCo/main/upgrade.sh | sudo bash
+```
+
+This installs LiFaCo, which fetches all further updates from this repository (`sudo lifaco-upgrade`) and adds the
+`lifaco*` commands. Configuration and profiles are kept – the technical names (service `fancontrol-linux`, group
+`fancontrol`, paths) did not change.
 
 ### No mainboard fans found?
 
