@@ -53,7 +53,6 @@ HYST_HELP = ("Hysteresis: the curve only reacts once the temperature has changed
              "(separately for rising ↑ and falling ↓). Response time: how long the change must persist.")
 SENSOR_MIX = [("max", "Maximum"), ("min", "Minimum"), ("avg", "Average")]
 CURVE_MIX = [("max", "Maximum"), ("min", "Minimum"), ("avg", "Average"), ("sum", "Sum"), ("sub", "Subtract")]
-CURVE_TILE_WIDTH = 250
 CURVES_HELP = (
     "Curves calculate the fan speed in percent – or, in RPM mode, a speed that calibrated fans then "
     "target. A curve can be assigned to several fans.\n\n"
@@ -99,7 +98,7 @@ class CurvesPage(Adw.Bin):
         if win.config is None:
             self.set_child(ui.notice("Connecting to the service …", "network-transmit-receive-symbolic"))
             return
-        flow = ui.CardFlow(width=CURVE_TILE_WIDTH)
+        flow = ui.CardFlow()
         visible = [c for c in win.config["curves"] if win.is_visible_item(c["id"])]
         for index, curve in enumerate(visible):
             flow.append(self._tile(curve, index))
@@ -169,19 +168,8 @@ class CurvesPage(Adw.Bin):
         win = self.win
         palette = paint.item(index)
         tile = ui.card(hidden=curve["id"] in win.config["hidden"], color_index=index)
-        tile.add_css_class("fc-tile")
         row = Gtk.Box(spacing=12)
-        preview = preview_points(curve)
-        if preview:
-            points, temp_range, rpm = preview
-            icon = GraphEditor(points, editable=False, compact=True, temp_range=temp_range, rpm=rpm,
-                               palette=palette)
-            icon.set_size_request(48, 34)
-            icon.set_hexpand(False)
-            icon.set_valign(Gtk.Align.CENTER)
-            row.append(icon)
-        else:
-            row.append(ui.icon_bubble(TYPE_ICONS[curve["type"]]))
+        row.append(ui.icon_bubble(TYPE_ICONS[curve["type"]]))
         names = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True, valign=Gtk.Align.CENTER)
         names.append(Gtk.Label(label=curve["name"], xalign=0, ellipsize=3, css_classes=["fc-card-title"]))
         users = self._users(curve)
@@ -199,6 +187,18 @@ class CurvesPage(Adw.Bin):
                                        ("Delete", lambda: self.delete(curve))]))
         row.append(Gtk.Image(icon_name="go-next-symbolic", css_classes=["fc-dim-icon"]))
         tile.append(row)
+        # The chart in the same size as on the fan cards; the dot is the current operating point.
+        chart = None
+        preview = preview_points(curve)
+        if preview:
+            points, temp_range, rpm = preview
+            chart = GraphEditor(points, editable=False, mini_axes=True, temp_range=temp_range, rpm=rpm,
+                                palette=palette)
+            tile.append(chart)
+        else:
+            tile.append(Gtk.Label(label="Mix of curves" if curve["type"] == "mix" else "Follows another fan",
+                                  wrap=True, xalign=0, css_classes=["fc-caption", "fc-chart-placeholder"]))
+
         def clicked(gesture, _n, x, y):
             target = gesture.get_widget().pick(x, y, Gtk.PickFlags.DEFAULT)
             # Clicks on the ⋮ menu belong to the menu, not to the tile.
@@ -209,7 +209,7 @@ class CurvesPage(Adw.Bin):
         tile.add_controller(click)
         tile.set_cursor(Gdk.Cursor.new_from_name("pointer"))
         tile.set_tooltip_text(f"{TYPE_NAMES[curve['type']]} – click to edit")
-        self.live[curve["id"]] = (value, curve)
+        self.live[curve["id"]] = (value, curve, chart)
         return tile
 
     def _new_tile(self):
@@ -231,9 +231,11 @@ class CurvesPage(Adw.Bin):
         st = self.win.status
         if not st:
             return
-        for cid, (value, curve) in self.live.items():
+        for cid, (value, curve, chart) in self.live.items():
             info = st["curves"].get(cid) or {}
             value.set_label("100 %" if info.get("failsafe") else _speed_fmt(curve, info.get("output")))
+            if chart is not None:
+                chart.set_live(info.get("temp"), info.get("output"))
         if self.dialog:
             self.dialog.update_live()
 
