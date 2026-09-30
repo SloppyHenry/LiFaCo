@@ -732,10 +732,14 @@ class HelperTests(unittest.TestCase):
         self.h = helpers
         self.helper = helpers.OpenRgbHelper()
         self._which, self._pm = helpers.shutil.which, helpers.package_manager
+        self._orig = (helpers.fetch_upstream_assets, helpers.download, helpers.OpenRgbHelper._run,
+                      helpers.platform.machine)
 
     def tearDown(self):
         self.h.shutil.which = self._which
         self.h.package_manager = self._pm
+        self.h.fetch_upstream_assets, self.h.download = self._orig[:2]
+        self.h.OpenRgbHelper._run, self.h.platform.machine = self._orig[2:]
 
     def wait_done(self):
         end = time.monotonic() + 5
@@ -756,8 +760,8 @@ class HelperTests(unittest.TestCase):
         self.assertTrue(st["can_install"])
         self.assertIn("not installed", st["hint"])
         self.h.package_manager = lambda: (None, None)
-        self.assertFalse(self.helper.status()["can_install"])
-        self.assertIn("openrgb.org", self.helper.status()["hint"])
+        self.assertTrue(self.helper.status()["can_install"])        # falls back to the project's own release
+        self.assertIn("official releases", self.helper.status()["hint"])
         self.h.shutil.which = lambda name: "/usr/bin/openrgb" if name == "openrgb" else None
         self.assertIn("sudo openrgb --server", self.helper.status()["hint"])
 
@@ -780,13 +784,49 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(len(ran), 1)                        # no service, no other commands
         self.assertNotIn("systemctl", " ".join(ran[0]))
 
-    def test_package_not_in_repositories_gives_a_clear_message(self):
+    def test_missing_package_falls_back_to_the_official_release(self):
         self.h.shutil.which = lambda name: None
-        self.h.package_manager = lambda: ("fake", ["sh", "-c", "echo 'E: Unable to locate package openrgb' >&2; exit 100"])
+        self.h.package_manager = lambda: ("apt-get", ["sh", "-c", "echo 'E: Unable to locate package openrgb' >&2; exit 100"])
+        assets = [("openrgb_1.0_amd64_bookworm_abc1234.deb", self.h.UPSTREAM_FILES + "release_1.0/a.deb", 1)]
+        self.h.fetch_upstream_assets = lambda: assets
+        self.h.download = lambda url, name: "/tmp/never-used.deb"
+        self.h.platform.machine = lambda: "x86_64"
+        ran = []
+        self.h.OpenRgbHelper._run = lambda self_, cmd: (ran.append(cmd), (0, "") if len(ran) > 1 else (100, "E: Unable to locate package"))[1]
         self.helper.start_install()
         self.wait_done()
-        self.assertIn("not in your distribution's repositories", self.helper.error)
+        self.assertEqual(self.helper.error, "")
+        self.assertEqual(ran[1], ["apt-get", "install", "-y", "/tmp/never-used.deb"])
+
+    def test_nothing_reachable_gives_a_clear_message(self):
+        self.h.shutil.which = lambda name: None
+        self.h.package_manager = lambda: ("fake", ["sh", "-c", "echo 'E: Unable to locate package openrgb' >&2; exit 100"])
+
+        def offline():
+            raise OSError("no route")
+        self.h.fetch_upstream_assets = offline
+        self.helper.start_install()
+        self.wait_done()
         self.assertIn("openrgb.org", self.helper.error)
+
+    def test_choice_of_official_files(self):
+        base = self.h.UPSTREAM_FILES + "release_1.0/"
+        names = ["openrgb_1.0_amd64_bookworm_81bbe18.deb", "openrgb_1.0_amd64_trixie_81bbe18.deb",
+                 "openrgb_1.0_arm64_trixie_81bbe18.deb", "OpenRGB_1.0_x86_64_81bbe18.AppImage",
+                 "OpenRGB_1.0_Windows_64_81bbe18.zip"]
+        assets = [(n, base + n, 1) for n in names]
+        pick = lambda mgr, info, arch: [n for _k, n, _u in self.h.pick_upstream(assets, mgr, info, arch)]  # noqa: E731
+        self.assertEqual(pick("apt-get", {"ID": "debian", "VERSION_ID": "13"}, "x86_64"),
+                         ["openrgb_1.0_amd64_trixie_81bbe18.deb", "openrgb_1.0_amd64_bookworm_81bbe18.deb",
+                          "OpenRGB_1.0_x86_64_81bbe18.AppImage"])
+        self.assertEqual(pick("apt-get", {"ID": "ubuntu", "VERSION_ID": "24.04"}, "x86_64")[0],
+                         "openrgb_1.0_amd64_bookworm_81bbe18.deb")
+        self.assertEqual(pick("apk", {"ID": "alpine"}, "x86_64"), ["OpenRGB_1.0_x86_64_81bbe18.AppImage"])
+        self.assertEqual(pick("apt-get", {"ID": "debian", "VERSION_ID": "13"}, "riscv64"), [])
+        foreign = [("openrgb_1.0_amd64_trixie_81bbe18.deb", "https://evil.example/x.deb", 1)]
+        self.assertEqual(self.h.pick_upstream(foreign, "apt-get", {"ID": "debian", "VERSION_ID": "13"}, "x86_64"), [])
+        with self.assertRaises(RuntimeError):
+            self.h.download("https://evil.example/x.deb", "x.deb")
 
     def test_nothing_is_installed_when_it_is_already_there(self):
         self.h.shutil.which = lambda name: "/usr/bin/openrgb"

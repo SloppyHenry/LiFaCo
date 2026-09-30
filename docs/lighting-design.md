@@ -63,10 +63,16 @@ an experimental Aura USB driver (*reported*: Z490/Z590/Z690). Nothing fundamenta
 8. **Never "save to device".** The plugin API has no such call; colours and effects stay volatile.
 
 Plugins can name **helpers** (`[requires] helpers = ["openrgb"]`): built-in, fixed actions of LiFaCo for what a
-plugin depends on. The only helper so far installs the distribution package of OpenRGB (apt/dnf/pacman/zypper/xbps/apk,
-through `systemd-run` because the service itself runs in a read-only sandbox). Plugins cannot make the service run
+plugin depends on. The only helper so far installs OpenRGB: first the distribution package (apt/dnf/pacman/zypper/xbps/apk,
+through `systemd-run` because the service itself runs in a read-only sandbox); if the package is missing or cannot be
+installed, the project's own release from its original repository (codeberg.org/OpenRGB, found through the release API,
+only files below that address): the official `.deb` for Debian/Ubuntu, otherwise the official AppImage (with a small
+wrapper in `/usr/local/bin`, plus the system's `libusb`). Downloads are over HTTPS only; the project publishes no
+checksums, so there is no further integrity check. Plugins cannot make the service run
 commands, and the helper creates no service and changes no boot setting. Checked in containers: Ubuntu 26.04
-(installs OpenRGB 0.9), Debian 13 (package missing, clear message with download link).
+(distribution package), Debian 13 and Ubuntu 24.04 (no package: the official `.deb` is tried first and fails on Debian 13
+because it needs a newer `libhidapi`; the AppImage is installed and its wrapper starts it, but a minimal container lacks
+the desktop libraries it needs, so `openrgb --version` was not reached), Alpine (distribution package).
 
 ## 4. Architecture
 

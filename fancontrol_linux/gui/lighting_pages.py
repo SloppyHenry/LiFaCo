@@ -227,9 +227,10 @@ class LedPage(Adw.Bin):
     def _ask_install_helper(self, p, h):
         dialog = Adw.AlertDialog(
             heading=f"Install {h['name']}?",
-            body=f"{p['name']} needs {h['name']}. LiFaCo installs the {h['name']} package of your distribution "
-                 "with administrator rights. It does not start a service or change anything else; you start the "
-                 "server yourself when you want to use it.")
+            body=f"{p['name']} needs {h['name']}. LiFaCo installs it with administrator rights: from your "
+                 "distribution's package repository, or, if it is not packaged there, the official release from "
+                 "the OpenRGB project (codeberg.org/OpenRGB). It does not start a service or change anything else; "
+                 "you start the server yourself when you want to use it.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("install", "Install")
         dialog.set_response_appearance("install", Adw.ResponseAppearance.SUGGESTED)
