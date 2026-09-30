@@ -392,6 +392,7 @@ class LightingManager:
                             "settings": self.plugin_settings(pid), "enabled": entry["enabled"],
                             "status": status, "error": rt.error if rt and rt.state == "error" else "",
                             "source": entry["source"], "devices": len(rt.devices) if rt else 0,
+                            "device_names": [d["name"] for d in rt.devices][:50] if rt else [],
                             "missing_commands": [c for c in m["requires"]["commands"] if not _which(c)],
                             "helpers": [HELPERS[h].status() for h in m["requires"]["helpers"] if h in HELPERS]})
             for name, err in sorted(self.broken.items()):

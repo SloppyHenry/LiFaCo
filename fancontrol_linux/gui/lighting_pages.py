@@ -135,7 +135,7 @@ class LedPage(Adw.Bin):
     # --- installed plugins ------------------------------------------------------------
     def _signature(self, plugins):
         return [(p["id"], p.get("status"), p.get("enabled"), p.get("version"), p.get("devices"),
-                 str(p.get("helpers"))) for p in plugins]
+                 str(p.get("device_names")), str(p.get("helpers"))) for p in plugins]
 
     def _show_plugins(self, plugins):
         if self._signature(plugins) == self._signature(self.plugins) and self.plugin_rows:
@@ -177,6 +177,15 @@ class LedPage(Adw.Bin):
         allowed = Adw.ActionRow(title="This plugin may", subtitle=GLib.markup_escape_text("\n".join(
             "• " + line for line in p["permission_lines"])), subtitle_lines=0)
         row.add_row(allowed)
+        if p["status"] == "stopped" and not p["enabled"]:
+            row.add_row(Adw.ActionRow(title="Switched off", subtitle="Switch the plugin on with the switch above. "
+                                      "It then looks for its devices; they appear in the Light section.",
+                                      subtitle_lines=0, css_classes=["warning"]))
+        if p["status"] == "running":
+            names = p.get("device_names") or []
+            row.add_row(Adw.ActionRow(title=f"Found {len(names)} devices" if names else "No devices found yet",
+                                      subtitle=GLib.markup_escape_text(", ".join(names)) if names else
+                                      "Check the settings below, or search again", subtitle_lines=0))
         if p["status"] == "error" and p["error"]:
             row.add_row(Adw.ActionRow(title="Problem", subtitle=GLib.markup_escape_text(p["error"]), subtitle_lines=0,
                                       css_classes=["error"]))
