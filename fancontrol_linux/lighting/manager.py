@@ -19,7 +19,7 @@ from .process import PluginError, PluginProcess
 log = logging.getLogger("fancontrol-linuxd")
 FAST, SLOW = 0.05, 0.25         # render interval with and without animated effects
 KEEPALIVE = 30.0                # resend unchanged colours this often (devices that reset, resume from sleep)
-MAX_RESTARTS = 5
+RETRY_MAX_WAIT = 60      # seconds between automatic restarts of a failing plugin (grows 4, 8, 16, 32, 60 …)
 DEFAULT_ON = {"type": "static", "color": [255, 255, 255], "brightness": 100.0}
 
 
@@ -59,12 +59,13 @@ class PluginRuntime:
             proc.stop()
             self.state, self.error = "error", str(e)
             self.attempts += 1
-            self.next_try = time.monotonic() + min(60, 2 ** self.attempts * 2)
-            log.warning("Plugin %s: %s", self.pid, e)
+            self.next_try = time.monotonic() + min(RETRY_MAX_WAIT, 2 ** self.attempts * 2)
+            self.manager.log_failure(self.pid, str(e))
             return
         self.devices = devices
         self.running_since = time.monotonic()
         self.state = "running"
+        self.manager.last_failure.pop(self.pid, None)
         self.manager.reset_device_cache(self.pid)
         threading.Thread(target=self._sender, args=(proc,), daemon=True).start()
 
@@ -202,6 +203,7 @@ class LightingManager:
         self.applied = {}       # device key -> what was last sent to it: (kind, frame/effect json, time)
         self.errors = {}        # device key -> last error text
         self.boot_gap = self._gap()
+        self.last_failure = {}
         self.builtin = None      # (provider, display name) for lighting that lives inside the service
         self.stop_event = threading.Event()
         self.t0 = time.monotonic()
@@ -290,11 +292,12 @@ class LightingManager:
                         if e["enabled"] and pid in self.infos and self._approved(pid)]
         udev.sync(approved)
 
-    def _launch(self, pid):
+    def _launch(self, pid, attempts=0):
         rt = self.runtimes.get(pid)
         if rt:
             rt.stop()
         rt = PluginRuntime(self, self.infos[pid])
+        rt.attempts = attempts          # automatic retries carry the count over, so the waiting time really grows
         rt.state = "starting"
         self.runtimes[pid] = rt
         threading.Thread(target=rt.start, daemon=True, name=f"plugin-{pid}").start()
@@ -303,6 +306,14 @@ class LightingManager:
         rt = self.runtimes.pop(pid, None)
         if rt:
             rt.stop()
+
+    def log_failure(self, pid, text):
+        """One warning when a plugin fails or its error changes; repeated identical failures stay quiet."""
+        if self.last_failure.get(pid) != text:
+            self.last_failure[pid] = text
+            log.warning("Plugin %s: %s", pid, text)
+        else:
+            log.debug("Plugin %s still failing: %s", pid, text)
 
     def reset_device_cache(self, pid):
         with self.lock:
@@ -319,9 +330,9 @@ class LightingManager:
                 threading.Thread(target=rt.rescan, daemon=True).start()
         elif msg.get("event") == "exited":
             rt = self.runtimes.get(pid)
-            if rt and not rt.stopping and rt.state in ("running", "starting"):
+            if rt and not rt.stopping and rt.state == "running":       # a failing start is handled by start()
                 rt.state, rt.error = "error", str(msg.get("reason") or "The plugin stopped")
-                rt.next_try = time.monotonic() + min(60, 2 ** (rt.attempts + 1) * 2)
+                rt.next_try = time.monotonic() + min(RETRY_MAX_WAIT, 2 ** (rt.attempts + 1) * 2)
                 rt.attempts += 1
 
     # --- plugins ---------------------------------------------------------------------
@@ -622,10 +633,10 @@ class LightingManager:
         with self.lock:
             runtimes = list(self.runtimes.values())
         for rt in runtimes:
-            if rt.state == "error" and rt.attempts <= MAX_RESTARTS and now >= rt.next_try and not rt.stopping:
+            if rt.state == "error" and now >= rt.next_try and not rt.stopping:
                 with self.lock:
                     if self.runtimes.get(rt.pid) is rt and self._entry(rt.pid)["enabled"]:
-                        self._launch(rt.pid)
+                        self._launch(rt.pid, rt.attempts)
                 continue
             if rt.state == "running" and rt.attempts and now - rt.running_since > 60:
                 rt.attempts = 0

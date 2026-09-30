@@ -849,3 +849,24 @@ class SlowStopTests(ManagerBase):
         started = time.monotonic()
         self.m.remove("busy")
         self.assertLess(time.monotonic() - started, 3.0)
+
+
+class RetryTests(ManagerBase):
+    def test_failing_plugin_is_retried_with_growing_waits_and_quiet_logs(self):
+        toml = TOML.replace("test-plugin", "flaky")
+        code = ("from lifaco_plugin import Plugin, run\nclass P(Plugin):\n    def discover(self):\n"
+                "        raise RuntimeError('server not reachable')\nrun(P)\n")
+        self.m.install_file(base64.b64encode(make_zip({"plugin.toml": toml, "plugin.py": code})).decode())
+        with self.assertLogs("fancontrol-linuxd", level="WARNING") as logs:
+            self.m.enable("flaky", True, approve=True)
+            waits = []
+            for _ in range(3):
+                self.assertTrue(self.wait(lambda: self.m.runtimes["flaky"].state == "error"))
+                rt = self.m.runtimes["flaky"]
+                waits.append(round(rt.next_try - time.monotonic()))
+                rt.next_try = 0                       # do not really wait
+                self.m._tick()
+        self.assertEqual([rt.attempts], [3])          # the count survives the restarts
+        self.assertGreater(waits[2], waits[0])        # 4 s, 8 s, 16 s … not 4 s forever
+        warnings = [r for r in logs.records if r.levelname == "WARNING"]
+        self.assertEqual(len(warnings), 1)            # the same failure is reported once

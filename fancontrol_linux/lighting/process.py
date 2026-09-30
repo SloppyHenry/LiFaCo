@@ -131,6 +131,8 @@ class PluginProcess:
             cmd = ["unshare", "--net", "--"] + cmd
         env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": data_dir,
                "LIFACO_PLUGIN_ID": m["id"], "LIFACO_DATA_DIR": data_dir, **python_env}
+        if log.isEnabledFor(logging.DEBUG):
+            env["LIFACO_PLUGIN_DEBUG"] = "1"
         try:
             self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                          env=env, cwd="/", close_fds=True, start_new_session=True)
