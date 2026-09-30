@@ -6,6 +6,7 @@ import sys
 import time
 
 from .ipc import Client, DaemonError
+from .lighting import cli as lighting_cli
 
 
 def _name(entry, sid):
@@ -50,7 +51,10 @@ def main(argv=None):
     sub.add_parser("export", help="print the active configuration as JSON")
     imp = sub.add_parser("import", help="apply a configuration from a JSON file")
     imp.add_argument("file")
+    lighting_cli.add_parsers(sub)
     args = parser.parse_args(argv)
+    if args.cmd in ("plugin", "light"):
+        return lighting_cli.run(args)
 
     client = Client()
     try:

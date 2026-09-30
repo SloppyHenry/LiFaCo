@@ -309,36 +309,6 @@ class SupportPage(Adw.Bin):
         self.set_child(page)
 
 
-class LedPage(Adw.Bin):
-    """Settings → LED devices. Placeholder: device discovery and activation for the coming lighting feature."""
-
-    def __init__(self, win):
-        super().__init__()
-        page = Adw.PreferencesPage()
-        intro = Adw.PreferencesGroup(
-            title="LED devices",
-            description="Find the RGB LEDs of your mainboard, graphics card, fans and coolers and choose which "
-                        "of them LiFaCo may control. Lighting effects are then set in the main window under Light.")
-        search = Adw.ActionRow(title="Search for LED devices",
-                               subtitle="Coming in a future version")
-        button = Gtk.Button(label="Search", valign=Gtk.Align.CENTER, sensitive=False,
-                            css_classes=["suggested-action"])
-        search.add_suffix(button)
-        intro.add(search)
-        page.add(intro)
-        devices = Adw.PreferencesGroup(title="Found devices",
-                                       description="Activated devices will appear in the Light section")
-        for title, subtitle in (("Mainboard", "RGB headers and onboard LEDs"),
-                                ("Graphics card", "GPU lighting"),
-                                ("Fans and coolers", "ARGB fans, AIO pumps and hubs"),
-                                ("Memory and other devices", "RAM modules, LED strips …")):
-            row = Adw.ActionRow(title=title, subtitle=subtitle, sensitive=False)
-            row.add_suffix(Gtk.Switch(valign=Gtk.Align.CENTER, sensitive=False))
-            devices.add(row)
-        page.add(devices)
-        self.set_child(page)
-
-
 REPO_URL = "https://github.com/SloppyHenry/LiFaCo"
 
 

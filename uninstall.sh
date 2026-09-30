@@ -82,8 +82,18 @@ if [[ $(dkms status -m it87 2>/dev/null || true) == *it87* ]]; then
     echo "      (remove it: sudo dkms remove it87/<version> --all, see: dkms status it87)."
 fi
 
+# Access rules for lighting plugins go away with the service.
+if [[ -f /etc/udev/rules.d/70-lifaco-plugins.rules ]]; then
+    rm -f /etc/udev/rules.d/70-lifaco-plugins.rules
+    udevadm control --reload-rules 2>/dev/null || true
+fi
+
 if [[ $PURGE -eq 1 ]]; then
     rm -rf /etc/fancontrol-linux "$STATE_DIR"
+    getent passwd lifaco-plugins >/dev/null && { userdel lifaco-plugins 2>/dev/null || deluser lifaco-plugins; } || true
+    for g in lifaco-plugins lifaco-usb lifaco-i2c; do
+        getent group "$g" >/dev/null && { groupdel "$g" 2>/dev/null || delgroup "$g"; } || true
+    done
     getent group fancontrol >/dev/null && { groupdel fancontrol 2>/dev/null || delgroup fancontrol; } || true
     echo "Configuration and group removed."
 else

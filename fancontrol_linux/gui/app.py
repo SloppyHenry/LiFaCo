@@ -16,8 +16,9 @@ from ..ipc import Client, DaemonUnavailable  # noqa: E402
 from . import common as ui  # noqa: E402
 from .controls import CONTROLS_HELP, ControlsPage  # noqa: E402
 from .curves import CURVES_HELP, CurvesPage  # noqa: E402
-from .layout import MAIN_SECTIONS, LightSection, MainView, NavPanel, SettingsView  # noqa: E402
-from .misc_pages import AboutPage, DesignPage, LedPage, SettingsPage, SupportPage, TrayPage  # noqa: E402
+from .layout import MAIN_SECTIONS, MainView, NavPanel, SettingsView  # noqa: E402
+from .lighting_pages import LedPage, LightSection  # noqa: E402
+from .misc_pages import AboutPage, DesignPage, SettingsPage, SupportPage, TrayPage  # noqa: E402
 from .sensors_page import SensorsPage  # noqa: E402
 from .theme import Theme  # noqa: E402
 from .tray import Tray  # noqa: E402

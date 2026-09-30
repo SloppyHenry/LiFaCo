@@ -58,8 +58,9 @@ header is "CPU_FAN" or "SYS_FAN2" is not reported by the hardware – use **Iden
 - A collapsible menu on the right (burger button, F9): Fans, Curves and Light scroll to their section, **Settings**
   opens its own view (General, Appearance, Tray icons, Sensors, LED devices, Hardware support, About). The active
   profile can be switched at the bottom of the menu and in the header, which also shows CPU and GPU temperature
-- **Light** (coming later): RGB lighting of mainboard, graphics card, fans and coolers. *Settings → LED devices*
-  is where LED devices will be found and activated; the lighting effects will then be set in the Light section
+- **Light**: RGB lighting through **plugins** (see [Lighting](#lighting-plugins)). *Settings → LED devices* lists the
+  installed plugins, lets you switch them on and search a catalog for more; the **Light** section then shows one card
+  per LED device with effects, colours and brightness
 - **Colourful cards**: every fan and curve gets its own colour (can be switched off)
 - **Midnight themes** (default): a dark look with a colour gradient for curves, switches and buttons – Aurora
   (blue → violet), Neon (green → lime), Rainbow, Sunset, Amber, Mint, Ice and Orchid
@@ -103,6 +104,38 @@ header is "CPU_FAN" or "SYS_FAN2" is not reported by the hardware – use **Iden
 ³ Control depends on the device, monitoring works for all.
 
 **Settings → Hardware support** shows what was detected and what may still be missing.
+
+## Lighting (plugins)
+
+LiFaCo controls RGB lighting through plugins. Each plugin teaches LiFaCo one kind of hardware; you find and install
+them in *Settings → LED devices* (search field, one click) – or write your own.
+
+| Plugin | Controls |
+|---|---|
+| `wled` | LED strips and matrices running [WLED](https://kno.wled.ge) – WLED's own effects or LiFaCo's |
+| `openrgb` | Mainboards, graphics cards, RAM, keyboards, mice, coolers and fans through an [OpenRGB](https://openrgb.org) server (ASUS Aura, Gigabyte, ASRock, Corsair, Razer, Logitech …) |
+| `virtual` | Pretend devices for trying it out |
+
+Planned: liquidctl (AIO coolers and fan hubs), OpenRazer, a careful MSI Mystic Light plugin.
+
+LiFaCo draws the effects itself (static, breathing, rainbow, **colour that follows a temperature**) and streams them
+to the devices; devices that have their own effects can run those instead.
+
+**Safety:** plugins run in their own process **without administrator rights** and can only do what you approve when
+you switch them on (network, specific USB devices, SMBus). LiFaCo never sends "save to device" commands, so colours
+are gone after a power cycle instead of being written into a controller's flash memory.
+
+**Write your own plugin** – a folder with two files:
+
+```bash
+lifacoctl plugin new my-strip && cd my-strip
+lifacoctl plugin dev . --color ff8800      # try it without the service
+lifacoctl plugin install .                 # or: Settings → LED devices → Add a plugin from a file
+```
+
+Guide and catalog: [LiFaCo-plugins](https://github.com/SloppyHenry/LiFaCo-plugins) ·
+design and research: [docs/lighting-design.md](docs/lighting-design.md).
+Command line: `lifacoctl plugin list|search|install|enable|disable|set|remove`, `lifacoctl light list|set|identify`.
 
 ## Requirements
 

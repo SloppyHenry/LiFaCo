@@ -10,10 +10,12 @@ import socketserver
 import threading
 import time
 
-from . import __version__, config as cfgmod
+from . import __version__
+from . import config as cfgmod
 from .engine import Engine
 from .hwmon import Hardware
 from .ipc import read_line, socket_path
+from .lighting.manager import LightingManager
 
 log = logging.getLogger("fancontrol-linuxd")
 
@@ -30,6 +32,12 @@ class Daemon:
             cfg = cfgmod.empty_config()
         self.hw = hardware or Hardware(settings=cfg["settings"])
         self.engine = Engine(self.hw, cfg)
+        self.lighting = LightingManager(temps=self._temp_values)
+        self.lighting.refresh()
+
+    def _temp_values(self):
+        temps = (self.engine.status_cache or {}).get("temps") or {}
+        return {sid: t.get("value") for sid, t in temps.items()}
 
     # --- commands -------------------------------------------------------
     def handle(self, request):
@@ -37,6 +45,8 @@ class Daemon:
         handler = getattr(self, f"cmd_{cmd}", None) if isinstance(cmd, str) else None
         if handler is None:
             raise ValueError(f"Unknown command: {cmd}")
+        if cmd.startswith(("plugin_", "light_")):
+            return handler(request)     # lighting has its own lock: a slow plugin must not delay fan control
         with self.lock:
             return handler(request)
 
@@ -91,10 +101,57 @@ class Daemon:
         self.engine.rescan()
         return self.engine.tick()
 
+    # --- lighting ---------------------------------------------------------
+    def cmd_plugin_list(self, _):
+        return self.lighting.list_plugins()
+
+    def cmd_plugin_catalog(self, req):
+        return self.lighting.catalog_search(str(req.get("query", "")), bool(req.get("refresh")))
+
+    def cmd_plugin_install(self, req):
+        self.lighting.install_catalog(str(req.get("id", "")))
+        return self.lighting.list_plugins()
+
+    def cmd_plugin_install_file(self, req):
+        self.lighting.install_file(req.get("data", ""))
+        return self.lighting.list_plugins()
+
+    def cmd_plugin_remove(self, req):
+        self.lighting.remove(str(req.get("id", "")))
+        return self.lighting.list_plugins()
+
+    def cmd_plugin_enable(self, req):
+        self.lighting.enable(str(req.get("id", "")), bool(req.get("enabled")), bool(req.get("approve")))
+        return self.lighting.list_plugins()
+
+    def cmd_plugin_settings(self, req):
+        self.lighting.set_settings(str(req.get("id", "")), req.get("settings"))
+        return self.lighting.list_plugins()
+
+    def cmd_plugin_restart(self, req):
+        self.lighting.restart(str(req.get("id", "")))
+        return self.lighting.list_plugins()
+
+    def cmd_light_devices(self, _):
+        return self.lighting.list_devices()
+
+    def cmd_light_set(self, req):
+        self.lighting.set_effect(str(req.get("device", "")), req.get("effect"))
+        return self.lighting.list_devices()
+
+    def cmd_light_rescan(self, _):
+        self.lighting.rescan()
+        return self.lighting.list_devices()
+
+    def cmd_light_identify(self, req):
+        self.lighting.identify(str(req.get("device", "")))
+        return None
+
     # --- loop -----------------------------------------------------------
     def run(self):
         log.info("Started: %d temperature sensors, %d fan sensors, %d fan outputs",
                  len(self.hw.temps), len(self.hw.fans), len(self.hw.pwms))
+        self.lighting.start()
         try:
             while not self.stop_event.is_set():
                 started = time.monotonic()
@@ -109,6 +166,7 @@ class Daemon:
                     interval = self.engine.config["settings"]["interval"]
                 self.stop_event.wait(max(0.05, interval - (time.monotonic() - started)))
         finally:
+            self.lighting.shutdown()
             with self.lock:
                 self.engine.shutdown()
             log.info("Stopped, fan control handed back to firmware/BIOS")

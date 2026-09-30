@@ -30,6 +30,7 @@ include = ["fancontrol_linux*"]
 
 [tool.setuptools.package-data]
 "fancontrol_linux.gui" = ["icons/**/*.svg"]
+"fancontrol_linux.lighting" = ["sdk/*.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -15,7 +15,8 @@ RuntimeDirectory=fancontrol-linux liquidctl
 RuntimeDirectoryMode=0755
 RuntimeDirectoryPreserve=yes
 ProtectSystem=strict
-ReadWritePaths=/etc/fancontrol-linux
+# Lighting plugins: their files and data live in /var/lib/fancontrol-linux; the udev rules grant them device access.
+ReadWritePaths=/etc/fancontrol-linux /var/lib/fancontrol-linux -/etc/udev/rules.d
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true

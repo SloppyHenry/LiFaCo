@@ -4,7 +4,7 @@ import json
 import os
 import socket
 
-MAX_MESSAGE = 4 * 1024 * 1024
+MAX_MESSAGE = 16 * 1024 * 1024
 
 
 def socket_path():

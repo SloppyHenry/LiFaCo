@@ -255,6 +255,9 @@ if [[ -n $APPIMAGE_SRC ]]; then
     step "Copying the AppImage contents to $OPT"
     rm -rf "${OPT:?}.new"
     cp -a "$APPIMAGE_SRC/." "$OPT.new"
+    # Lighting plugins run as an unprivileged user and need to read the bundled Python; the AppImage tree can have
+    # owner-only directories. Program files are not secret, so make them readable for everybody.
+    chmod -R a+rX "$OPT.new"
     rm -rf "${OPT:?}" && mv "$OPT.new" "$OPT"
     rm -rf "${LIBDIR:?}"   # replace an earlier installation from source
     for mode in "fancontrol-linux:" "fancontrol-linuxd:--daemon" "fancontrol-linuxctl:--ctl"; do
@@ -325,6 +328,20 @@ fi
 # Directory for file sensors that group members may write to (persists across reboots).
 install -d -m 2775 -g fancontrol "$STATE_DIR/sensors"
 chmod 755 "$STATE_DIR"
+
+# Lighting plugins run as their own unprivileged user. They reach USB/SMBus devices only through the groups
+# lifaco-usb / lifaco-i2c, which udev rules written by the service grant for hardware you approved per plugin.
+step "Lighting plugins"
+for g in lifaco-plugins lifaco-usb lifaco-i2c; do
+    getent group "$g" >/dev/null || groupadd --system "$g" 2>/dev/null || addgroup -S "$g"
+done
+if ! id lifaco-plugins >/dev/null 2>&1; then
+    NOLOGIN="$(command -v nologin || echo /usr/sbin/nologin)"
+    useradd --system --no-create-home --shell "$NOLOGIN" -g lifaco-plugins lifaco-plugins 2>/dev/null \
+        || adduser -S -D -H -s "$NOLOGIN" -G lifaco-plugins lifaco-plugins
+fi
+install -d -m 755 "$STATE_DIR/plugins" "$STATE_DIR/plugin-data"
+ok "Plugin user 'lifaco-plugins' and plugin folders"
 
 # --- Hardware ---------------------------------------------------------------------
 MODULES=()

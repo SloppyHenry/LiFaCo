@@ -9,21 +9,9 @@ from gi.repository import Adw, Graphene, Gtk  # noqa: E402
 from .. import APP_ID, __version__  # noqa: E402
 from . import common as ui  # noqa: E402
 
-LIGHT_TEXT = ("Control the RGB LEDs of your mainboard, graphics card, fans and coolers directly from LiFaCo. "
-              "First find and activate your LED devices in <b>Settings → LED devices</b>; the lighting effects "
-              "will then be set here.")
 NAV_ITEMS = (("fans", "Fans", "fc-fan-symbolic"), ("curves", "Curves", "fc-curve-symbolic"),
              ("light", "Light", "fc-light-symbolic"), ("settings", "Settings", "fc-settings-symbolic"))
 MAIN_SECTIONS = ("fans", "curves", "light")
-
-
-class LightSection(Adw.Bin):
-    """Placeholder until LED control is implemented."""
-
-    def __init__(self, win):
-        super().__init__()
-        self.set_child(ui.notice("LED lighting is coming soon", "fc-light-symbolic", LIGHT_TEXT,
-                                 ("Set up LED devices", lambda: win.navigate("leds"))))
 
 
 class MainView(Gtk.ScrolledWindow):
