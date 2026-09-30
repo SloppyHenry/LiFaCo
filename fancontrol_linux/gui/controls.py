@@ -213,7 +213,14 @@ class ControlsPage(Adw.Bin):
             scale.set_value(ctl["manual_percent"])
             scale.set_draw_value(True)
             scale.set_format_value_func(lambda _s, v: f"{v:.0f} %")
-            scale.connect("value-changed", lambda s: setter("manual_percent", {"controls"})(round(s.get_value())))
+            def manual_changed(s):
+                # No page rebuild here: it would replace the slider while it is being dragged.
+                value = round(s.get_value())
+                setter("manual_percent")(value)
+                if chart:
+                    chart.points[:] = [[20, value], [90, value]]
+                    chart.refresh()
+            scale.connect("value-changed", manual_changed)
             details.append(ui.labeled("Manual speed", scale))
         temp_value, target_value = _value_label(), _value_label()
         details.append(_detail_row("fc-thermometer-symbolic", "Current temperature", temp_value))

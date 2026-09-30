@@ -71,10 +71,26 @@ wrapper in `/usr/local/bin`, plus the system's `libusb`). Downloads are over HTT
 checksums, so there is no further integrity check. Plugins cannot make the service run
 commands, and the helper creates no permanent service and changes no boot setting. A plugin can ask (permission
 `start = ["openrgb"]`, shown to the user and approved when switching the plugin on) that LiFaCo starts the OpenRGB server
-while the plugin is on: a transient systemd unit `lifaco-openrgb` running as root with `IPAddressAllow=localhost` /
-`IPAddressDeny=any`, restarted on failure, stopped when the plugin is switched off or removed (a server the user
-started himself is never stopped). LiFaCo starts it again when the service comes up with the plugin on. The unit
-command is unit-tested; it has **not** been run on a real systemd system yet. Checked in containers: Ubuntu 26.04
+while the plugin is on: a transient systemd unit `lifaco-openrgb` running as root, restarted on failure, stopped when
+the plugin is switched off or removed (a server the user started himself is never stopped). LiFaCo starts it again when
+the service comes up with the plugin on. It uses its own settings folder `/var/lib/fancontrol-linux/OpenRGB`
+(`--config`, and `XDG_CONFIG_HOME` for versions without it), so it never touches a user's own OpenRGB settings. If
+`openrgb --help` lists `--server-host`, the SDK listens on 127.0.0.1 only and the unit may reach local networks
+(`IPAddressAllow=localhost link-local multicast` + private ranges, `IPAddressDeny=any`: network lamps and E1.31
+controllers work, the internet is blocked); otherwise it is limited to localhost. Ran on the author's system
+(Ubuntu, OpenRGB 1.0rc2 package): the unit starts and the SDK answers (protocol 5).
+
+**Devices added by hand.** OpenRGB only finds network and serial devices that are listed in its settings
+(`E131Devices`, `DDPDevices`, `LEDStripDevices`, `LIFXDevices`, `YeelightDevices`, `GoveeDevices`,
+`ElgatoKeyLightDevices`, `ElgatoLightStripDevices`, `KasaSmartDevices`, `PhilipsWizDevices`; field names checked against
+the OpenRGB sources of 0.9, 1.0rc2 and 1.0). LiFaCo edits exactly these keys in its server's `OpenRGB.json`: every field
+is validated (addresses, number ranges, serial ports only `/dev/tty{USB,ACM,S,AMA}N` or `/dev/serial/by-id/…`, protocol
+from a fixed list, at most 64 devices), other keys are kept, the server is stopped before writing (it could write old
+settings back) and started again. Settings over the SDK (packets 250–254) only exist from protocol 6, so the file is
+the way that works for 0.9 to 1.0. Philips Hue and Nanoleaf need a pairing step and are not offered.
+**Zone sizes and hardware search** go over the SDK (`RESIZEZONE` 1000 – OpenRGB stores the size itself –, and
+`REQUEST_RESCAN_DEVICES` 140; both exist in protocol 5 and 6). The plugin API has `Zone(min_leds, max_leds)`,
+`resize_zone()` and `rescan()` for that. Checked in containers: Ubuntu 26.04
 (distribution package), Debian 13 and Ubuntu 24.04 (no package: the official `.deb` is tried first and fails on Debian 13
 because it needs a newer `libhidapi`; the AppImage is installed and its wrapper starts it, but a minimal container lacks
 the desktop libraries it needs, so `openrgb --version` was not reached), Alpine (distribution package).
@@ -145,20 +161,20 @@ read the bundled Python.
 | Same with the AppImage's bundled Python | extracted AppImage on Debian 12 (older glibc). This found that the AppImage tree must be world-readable; the installer now does that (the installer step itself was not run end-to-end) |
 | GUI (search, install, enable, effect cards), CLI | headless GTK run in Xvfb against a real daemon and a local catalog; screenshots inspected |
 | `liquidctl` built-in lighting | tests with simulated liquidctl devices (channels, fixed mode without extra options, throttling, errors, shared lock); **no real device tried** |
-| `wled` plugin | tests against a simulated WLED controller (HTTP JSON + UDP) – no real WLED device yet |
-| `openrgb` plugin | tests against a simulated OpenRGB server (protocol 4 built from the SDK documentation). **Not yet run against a real OpenRGB server.** |
+| `wled` plugin | tests against a simulated WLED controller (HTTP JSON + UDP); discovery (own mDNS client) and read-only discovery (`--dev`) run against three real WLED controllers on the author's network. They answer only standard queries from port 5353, not "unicast response" queries; the client sends both. Colours were not sent to real devices by tests |
+| `openrgb` plugin | tests against a simulated OpenRGB server (protocol 4 built from the SDK documentation); handshake against a real OpenRGB 1.0rc2 server (0 devices on that PC: its EVGA RTX 3060, Biostar board and generic keyboard/mouse are not supported by OpenRGB). **No real device controlled yet.** Devices added by hand: config writing unit-tested, not yet with a real server |
 | systemd unit with new `ReadWritePaths`, udev rule generation and reload, `i2c`/`usb` group access to real devices | **not tested** on a real system yet |
 
 ## 8. Roadmap
 
 1. **Done:** plugin host, sandbox, catalog, effect engine, CLI, GUI (Settings → LED devices, Light section),
    plugins `wled`, `openrgb`, `virtual`, developer tools and guide.
-2. **Verify** the `openrgb` plugin against real OpenRGB 0.9 and 1.0 servers with hardware (section 7). Decide how LiFaCo helps set up the OpenRGB server
-   (systemd service with hardware access).
+2. **Verify** the `openrgb` plugin against real OpenRGB 0.9 and 1.0 servers with hardware (section 7). Done: LiFaCo
+   installs OpenRGB, starts its server while the plugin is on, manages devices added by hand, zone sizes and hardware search.
 3. liquidctl lighting: built in and tested with simulated devices only; needs testing with real AIOs/hubs, more drivers (Commander Core/Pro, Aquacomputer, RGB Fusion 2) and hardware modes.
 4. `openrazer` plugin (D-Bus).
 5. `msi-mystic-light` plugin with the safeguards from section 2.
-6. WLED: mDNS without avahi-browse, per-segment control.
+6. Done: WLED mDNS without avahi-browse. Open: per-segment control.
 7. Done: gradient editor, effects that follow fan speed, lighting per profile, resume/off-on-exit, tray entries
    (Lights on/off), overview with device tiles. Open: effects beyond the four built-in ones, per-zone control.
 8. Optional catalog signatures.

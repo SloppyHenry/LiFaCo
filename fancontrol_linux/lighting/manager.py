@@ -19,6 +19,7 @@ from .process import PluginError, PluginProcess
 log = logging.getLogger("fancontrol-linuxd")
 FAST, SLOW = 0.05, 0.25         # render interval with and without animated effects
 KEEPALIVE = 30.0                # resend unchanged colours this often (devices that reset, resume from sleep)
+MAX_ZONE_LEDS = 4096
 RETRY_MAX_WAIT = 60      # seconds between automatic restarts of a failing plugin (grows 4, 8, 16, 32, 60 …)
 DEFAULT_ON = {"type": "static", "color": [255, 255, 255], "brightness": 100.0}
 
@@ -86,7 +87,14 @@ class PluginRuntime:
         return devices
 
     def _clean_device(self, d):
-        zones = [{"name": str(z["name"])[:60], "leds": max(0, min(int(z["leds"]), 4096))} for z in d.get("zones", [])]
+        zones = []
+        for z in d.get("zones", []):
+            zone = {"name": str(z["name"])[:60], "leds": max(0, min(int(z["leds"]), MAX_ZONE_LEDS))}
+            if z.get("min_leds") is not None and z.get("max_leds") is not None:
+                lo, hi = max(0, int(z["min_leds"])), min(int(z["max_leds"]), MAX_ZONE_LEDS)
+                if hi > lo:
+                    zone["min_leds"], zone["max_leds"] = lo, hi
+            zones.append(zone)
         modes = [{"name": str(m["name"])[:80], "colors": max(0, min(int(m.get("colors", 0)), 8)),
                   "speed": bool(m.get("speed")), "brightness": bool(m.get("brightness"))}
                  for m in d.get("modes", [])][:300]
@@ -106,6 +114,16 @@ class PluginRuntime:
             self.devices = self._discover(self.process)
         except PluginError as e:
             self.state, self.error = "error", str(e)
+
+    def call(self, method, params=None, timeout=10.0):
+        """A request of the user (resize a zone, search the hardware again); errors are shown to him."""
+        proc = self.process
+        if self.state != "running" or not proc:
+            raise LightingError("The plugin is not running")
+        try:
+            return proc.call(method, params, timeout=timeout)
+        except PluginError as e:
+            raise LightingError(str(e)) from None
 
     def submit(self, device_id, kind, payload):
         with self.cond:
@@ -485,6 +503,32 @@ class LightingManager:
             raise LightingError(f"Unknown helper '{hid}'")
         return helper.start_install()
 
+    def _helper(self, hid):
+        helper = HELPERS.get(hid)
+        if not helper or not hasattr(helper, "manual_config"):
+            raise LightingError(f"Unknown helper '{hid}'")
+        return helper
+
+    def helper_devices(self, hid):
+        return self._helper(hid).manual_config()
+
+    def helper_set_devices(self, hid, devices):
+        """Devices added by hand to a helper's server (OpenRGB). The server restarts; its plugins reconnect."""
+        helper = self._helper(hid)
+        try:
+            problem = helper.set_manual_devices(devices)
+        except (ValueError, OSError) as e:
+            raise LightingError(str(e)) from None
+        with self.lock:
+            for pid, info in self.infos.items():
+                m = info["manifest"]
+                uses = hid in m["permissions"].get("start", []) or hid in m["requires"]["helpers"]
+                if uses and pid in self.runtimes and self._entry(pid)["enabled"] and self._approved(pid):
+                    self._launch(pid)
+        result = helper.manual_config()
+        result["problem"] = problem
+        return result
+
     def catalog_search(self, query="", refresh=False):
         url = catalog_url(self.state)
         try:
@@ -601,6 +645,38 @@ class LightingManager:
             runtimes = list(self.runtimes.values())
         for rt in runtimes:
             rt.rescan()
+
+    def resize_zone(self, key, zone, leds):
+        """Set how many LEDs are connected to a resizable zone (for example an addressable header)."""
+        with self.lock:
+            rt, dev = self._device(key)
+            try:
+                z = dev["zones"][int(zone)]
+                leds = int(leds)
+            except (IndexError, TypeError, ValueError):
+                raise LightingError("Unknown zone") from None
+            if "min_leds" not in z:
+                raise LightingError("The LED count of this zone is fixed")
+            if not z["min_leds"] <= leds <= z["max_leds"]:
+                raise LightingError(f"The zone takes {z['min_leds']} to {z['max_leds']} LEDs")
+        if not isinstance(rt, PluginRuntime):
+            raise LightingError("This device cannot change its LED count")
+        rt.call("resize_zone", {"device": dev["id"], "zone": int(zone), "leds": leds}, timeout=15)
+        rt.rescan()
+        with self.lock:
+            self.applied.pop(key, None)
+        self.errors.pop(key, None)
+
+    def hardware_rescan(self, pid):
+        """Ask a plugin to search its hardware again (plugins without such a search just list their devices)."""
+        with self.lock:
+            rt = self.runtimes.get(pid)
+        if rt is None:
+            raise LightingError("The plugin is not running")
+        if isinstance(rt, PluginRuntime):
+            rt.call("rescan", timeout=60)
+        rt.rescan()
+        return len(rt.devices)
 
     def identify(self, key):
         with self.lock:

@@ -119,8 +119,11 @@ them in *Settings → LED devices* (search field, one click) – or write your o
 AIO coolers, fan hubs and LED controllers found through liquidctl need no plugin: their colour channels appear as devices automatically (built in, experimental, only volatile colours). The `openrgb` plugin checks whether OpenRGB is installed and can install it for you (with your confirmation): from
 your distribution's package repository or, if it is not packaged there, from the OpenRGB project's official releases; while the plugin is on, LiFaCo starts the OpenRGB server for you (only after you approve it when switching the plugin on;
 as a temporary background process with administrator rights, reachable from this computer only, stopped again when you
-switch the plugin off - no permanent service is created). Planned: OpenRazer and a careful
-MSI Mystic Light plugin.
+switch the plugin off - no permanent service is created). Devices OpenRGB cannot find by itself - network lamps and LED
+controllers (E1.31, DDP, LIFX, Yeelight, Govee, Elgato, WiZ, Kasa) and Arduino LED strips on a serial port - are added
+in LiFaCo (Settings → LED devices → OpenRGB → Devices you add yourself); the number of LEDs on addressable headers is
+set on the device card, and "Search the hardware again" makes OpenRGB look for new hardware. The `wled` plugin finds
+WLED devices on the network by itself (mDNS, every minute). Planned: OpenRazer and a careful MSI Mystic Light plugin.
 
 LiFaCo draws the effects itself (static, breathing, rainbow, **colour that follows a temperature or a fan's speed**,
 with an editable colour gradient) and streams them to the devices; devices that have their own effects can run those

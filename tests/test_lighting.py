@@ -734,8 +734,11 @@ class HelperTests(unittest.TestCase):
         self._which, self._pm = helpers.shutil.which, helpers.package_manager
         self._orig = (helpers.fetch_upstream_assets, helpers.download, helpers.OpenRgbHelper._run,
                       helpers.platform.machine)
+        self._running = helpers._server_running
+        helpers._server_running = lambda: False          # independent of an OpenRGB running on this computer
 
     def tearDown(self):
+        self.h._server_running = self._running
         self.h.shutil.which = self._which
         self.h.package_manager = self._pm
         self.h.fetch_upstream_assets, self.h.download = self._orig[:2]
@@ -941,17 +944,164 @@ class ServerStartTests(ManagerBase):
         self.assertNotEqual(mf.permission_key(plain), mf.permission_key(with_start))
 
 
+RESIZE_PY = '''
+from lifaco_plugin import Device, Plugin, Zone, run
+import json, os
+
+class P(Plugin):
+    def setup(self):
+        self.size = 4
+        self.searches = 0
+
+    def discover(self):
+        return [Device("hub", "Hub", zones=[Zone("Fixed", 2), Zone("Header", self.size, 0, 10)])]
+
+    def set_colors(self, device_id, colors):
+        pass
+
+    def resize_zone(self, device_id, zone, leds):
+        self.size = leds
+        self.devices_changed()
+
+    def rescan(self):
+        self.searches += 1
+        with open(os.path.join(self.data_dir, "searches.json"), "w") as f:
+            json.dump(self.searches, f)
+
+run(P)
+'''
+
+
+class ZoneSizeTests(ManagerBase):
+    def setUp(self):
+        super().setUp()
+        toml = TOML.replace('id = "test-plugin"', 'id = "hub-plugin"')
+        self.m.install_file(base64.b64encode(make_zip({"plugin.toml": toml, "plugin.py": RESIZE_PY},
+                                                      "hub-plugin/")).decode())
+        self.m.enable("hub-plugin", True, approve=True)
+        self.assertTrue(self.wait(lambda: self.m.list_devices()))
+
+    def test_resizable_zone_is_listed_and_resized(self):
+        dev = self.m.list_devices()[0]
+        self.assertEqual(dev["zones"], [{"name": "Fixed", "leds": 2},
+                                        {"name": "Header", "leds": 4, "min_leds": 0, "max_leds": 10}])
+        self.m.resize_zone("hub-plugin:hub", 1, 7)
+        self.assertTrue(self.wait(lambda: self.m.list_devices()[0]["leds"] == 9))
+
+    def test_resize_is_checked_before_the_plugin_is_asked(self):
+        for zone, leds in ((0, 3), (1, 11), (1, -1), (5, 2), ("x", 2)):
+            with self.assertRaises(LightingError):
+                self.m.resize_zone("hub-plugin:hub", zone, leds)
+        self.assertEqual(self.m.list_devices()[0]["leds"], 6)
+
+    def test_hardware_rescan_asks_the_plugin(self):
+        self.assertEqual(self.m.hardware_rescan("hub-plugin"), 1)
+        with open(os.path.join(self.tmp, "data", "hub-plugin", "searches.json")) as f:
+            self.assertEqual(json.load(f), 1)
+        with self.assertRaises(LightingError):
+            self.m.hardware_rescan("missing")
+
+
 class OpenRgbServerCommandTests(unittest.TestCase):
     def setUp(self):
         from fancontrol_linux.lighting import helpers
         self.h = helpers
         self.saved = (helpers.shutil.which, helpers._systemd, helpers._server_running, helpers.subprocess.run,
-                      helpers.time.sleep)
+                      helpers.time.sleep, helpers.CONFIG_HOME, helpers.CONFIG_DIR, helpers._unit_active)
+        self.tmp = tempfile.mkdtemp()
+        helpers.CONFIG_HOME = self.tmp
+        helpers.CONFIG_DIR = os.path.join(self.tmp, "OpenRGB")
         self.helper = helpers.OpenRgbHelper()
 
     def tearDown(self):
         (self.h.shutil.which, self.h._systemd, self.h._server_running, self.h.subprocess.run,
-         self.h.time.sleep) = self.saved
+         self.h.time.sleep, self.h.CONFIG_HOME, self.h.CONFIG_DIR, self.h._unit_active) = self.saved
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def fake_system(self, help_text="--server-host  --config path"):
+        """systemd present, OpenRGB installed; records commands; the server is up once systemd-run ran."""
+        from types import SimpleNamespace
+        ran, state = [], {"up": False}
+        self.h.shutil.which = lambda n: "/usr/bin/" + n
+        self.h._systemd = lambda: True
+        self.h._server_running = lambda: state["up"]
+        self.h.time.sleep = lambda s: None
+
+        def fake_run(cmd, **kw):
+            ran.append(cmd)
+            if cmd[0] == "systemd-run":
+                state["up"] = True
+            if cmd[0] == "systemctl" and cmd[1] == "stop":
+                state["up"] = False
+            return SimpleNamespace(returncode=0, stderr="", stdout=help_text if cmd[-1] == "--help" else "")
+        self.h.subprocess.run = fake_run
+        return ran, state
+
+    def unit(self, ran):
+        return next(c for c in ran if c[0] == "systemd-run")
+
+    def test_own_settings_folder_and_local_networks_with_server_host(self):
+        ran, _state = self.fake_system()
+        self.assertEqual(self.helper.ensure_server(), "")
+        cmd = self.unit(ran)
+        self.assertIn("IPAddressAllow=" + self.h.LOCAL_NETWORKS, cmd)
+        self.assertEqual(cmd[cmd.index("--server-host") + 1], "127.0.0.1")       # the SDK stays local
+        self.assertEqual(cmd[cmd.index("--config") + 1], self.h.CONFIG_DIR)
+        self.assertIn(f"XDG_CONFIG_HOME={self.tmp}", cmd)
+        self.assertTrue(os.path.isdir(self.h.CONFIG_DIR))
+
+    def test_old_openrgb_without_server_host_gets_localhost_only(self):
+        ran, _state = self.fake_system(help_text="--server  --config path")
+        self.helper.ensure_server()
+        cmd = self.unit(ran)
+        self.assertIn("IPAddressAllow=localhost", cmd)
+        self.assertNotIn("--server-host", cmd)
+        self.assertIn("--config", cmd)
+
+    def test_manual_devices_are_validated_and_written(self):
+        ran, state = self.fake_system()
+        self.h._unit_active = lambda: state["up"]
+        self.helper.ensure_server()
+        ran.clear()
+        problem = self.helper.set_manual_devices([
+            {"type": "E131Devices", "name": "Shelf", "ip": "192.168.1.60", "num_leds": 120},
+            {"type": "LIFXDevices", "name": "Lamp", "ip": "lamp.local"},
+            {"type": "E131Devices", "name": "Desk", "ip": "", "num_leds": 30, "start_universe": 2}])
+        self.assertEqual(problem, "")
+        with open(os.path.join(self.h.CONFIG_DIR, "OpenRGB.json")) as f:
+            data = json.load(f)
+        shelf, desk = data["E131Devices"]["devices"]
+        self.assertEqual((shelf["type"], shelf["rgb_order"], shelf["num_leds"]), ("LINEAR", "RGB", 120))
+        self.assertNotIn("ip", desk)                                    # empty optional address = multicast
+        self.assertEqual(data["LIFXDevices"]["devices"], [{"name": "Lamp", "ip": "lamp.local"}])
+        names = [c[:2] for c in ran]
+        self.assertLess(names.index(["systemctl", "stop"]), names.index(["systemd-run", "--unit=lifaco-openrgb"]))
+        listed = self.helper.manual_config()
+        self.assertEqual([d["type"] for d in listed["devices"]], ["E131Devices", "E131Devices", "LIFXDevices"])
+        self.assertTrue(listed["server_managed"])
+
+    def test_other_settings_survive_and_removing_all_clears_the_keys(self):
+        self.fake_system()
+        self.h._unit_active = lambda: False
+        os.makedirs(self.h.CONFIG_DIR)
+        with open(os.path.join(self.h.CONFIG_DIR, "OpenRGB.json"), "w") as f:
+            json.dump({"Detectors": {"x": True}, "GoveeDevices": {"devices": [{"ip": "10.0.0.3"}]}}, f)
+        self.helper.set_manual_devices([])
+        with open(os.path.join(self.h.CONFIG_DIR, "OpenRGB.json")) as f:
+            self.assertEqual(json.load(f), {"Detectors": {"x": True}})
+
+    def test_bad_entries_are_refused(self):
+        clean = self.h.clean_manual_device
+        for bad in ({"type": "Nope"}, {"type": "LIFXDevices", "ip": "a b"}, {"type": "LIFXDevices", "ip": ""},
+                    {"type": "E131Devices", "num_leds": 0}, {"type": "E131Devices", "num_leds": "many"},
+                    {"type": "LEDStripDevices", "port": "/etc/shadow"},
+                    {"type": "LEDStripDevices", "port": "/dev/ttyUSB0", "protocol": "evil"}):
+            with self.assertRaises(ValueError):
+                clean(bad)
+        strip = clean({"type": "LEDStripDevices", "port": "/dev/ttyACM0", "num_leds": 60})
+        self.assertEqual((strip["baud"], strip["protocol"], strip["name"]), (115200, "adalight", "LED strip on a serial port"))
+        with self.assertRaises(ValueError):
+            self.helper.set_manual_devices([{"type": "LIFXDevices", "ip": "10.0.0.2"}] * 65)
 
     def test_starts_a_transient_local_only_root_unit(self):
         ran = []
@@ -968,10 +1118,9 @@ class OpenRgbServerCommandTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stderr="", stdout="")
         self.h.subprocess.run = fake_run
         self.assertEqual(self.helper.ensure_server(), "")
-        cmd = ran[0]
-        self.assertEqual(cmd[0], "systemd-run")
+        cmd = self.unit(ran)
         self.assertIn("--unit=lifaco-openrgb", cmd)
-        self.assertIn("IPAddressAllow=localhost", cmd)
+        self.assertIn("IPAddressAllow=localhost", cmd)                # --help lists no --server-host here
         self.assertIn("IPAddressDeny=any", cmd)
         self.assertEqual(cmd[-2:], ["/usr/bin/openrgb", "--server"])
         self.assertFalse(any("enable" in c for c in cmd))                         # nothing persistent

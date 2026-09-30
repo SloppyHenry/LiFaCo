@@ -50,7 +50,7 @@ class Daemon:
         handler = getattr(self, f"cmd_{cmd}", None) if isinstance(cmd, str) else None
         if handler is None:
             raise ValueError(f"Unknown command: {cmd}")
-        if cmd.startswith(("plugin_", "light_")):
+        if cmd.startswith(("plugin_", "light_", "helper_")):
             return handler(request)     # lighting has its own lock: a slow plugin must not delay fan control
         with self.lock:
             return handler(request)
@@ -146,6 +146,18 @@ class Daemon:
 
     def cmd_helper_install(self, req):
         return self.lighting.helper_install(str(req.get("id", "")))
+
+    def cmd_helper_devices(self, req):
+        if "devices" in req:
+            return self.lighting.helper_set_devices(str(req.get("id", "")), req.get("devices"))
+        return self.lighting.helper_devices(str(req.get("id", "")))
+
+    def cmd_plugin_hardware_rescan(self, req):
+        return {"devices": self.lighting.hardware_rescan(str(req.get("id", "")))}
+
+    def cmd_light_resize_zone(self, req):
+        self.lighting.resize_zone(str(req.get("device", "")), req.get("zone"), req.get("leds"))
+        return self.lighting.list_devices()
 
     def cmd_light_devices(self, _):
         return self.lighting.list_devices()

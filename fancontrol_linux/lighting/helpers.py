@@ -1,9 +1,9 @@
 """Built-in helpers that install software a plugin depends on (for example OpenRGB).
 
 A plugin names a helper in its plugin.toml (`[requires] helpers = ["openrgb"]`). What a helper does as root is fixed
-here in LiFaCo: plugins can never make the service run commands of their own. A helper only installs
-software (from the distribution's repositories, or from the project's own releases); it does not create services or
-change boot settings.
+here in LiFaCo: plugins can never make the service run commands of their own. A helper installs software (from the
+distribution's repositories, or from the project's own releases), starts its server while an approved plugin is on
+(a transient unit, never a boot service) and keeps the server's device list; it does not change boot settings.
 """
 
 import json
@@ -27,6 +27,118 @@ UPSTREAM_API = "https://codeberg.org/api/v1/repos/OpenRGB/OpenRGB/releases/lates
 UPSTREAM_FILES = "https://codeberg.org/OpenRGB/OpenRGB/releases/download/"
 MAX_DOWNLOAD = 120 * 1024 * 1024
 DOWNLOAD_DIR = "/var/lib/fancontrol-linux/downloads"
+# Configuration of the server LiFaCo starts (devices added by hand, zone sizes). Kept apart from a user's own OpenRGB.
+CONFIG_HOME = "/var/lib/fancontrol-linux"
+CONFIG_DIR = os.path.join(CONFIG_HOME, "OpenRGB")
+LOCAL_NETWORKS = "localhost link-local multicast 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fc00::/7"
+MAX_MANUAL = 64
+_HOST = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.:-]{0,252}$")
+_SERIAL = re.compile(r"^/dev/(tty(USB|ACM|S|AMA)[0-9]{1,3}|serial/by-id/[A-Za-z0-9._:+-]{1,200})$")
+
+
+def _field(key, label, kind="text", default="", **extra):
+    return dict(key=key, label=label, kind=kind, default=default, **extra)
+
+
+_NAME = _field("name", "Name")
+_IP = _field("ip", "IP address", "host")
+_LEDS = _field("num_leds", "Number of LEDs", "int", 30, min=1, max=4096)
+# Devices that OpenRGB cannot find by itself and that are added by hand (its "Manual devices" settings). Keys and
+# fields are the ones OpenRGB reads from OpenRGB.json; `fixed` values are written as they are.
+MANUAL_TYPES = {
+    "E131Devices": {"label": "E1.31 / sACN (network LED controller)", "fields": [
+        _NAME, _field("ip", "IP address (empty = multicast)", "host", optional=True), _LEDS,
+        _field("start_universe", "Start universe", "int", 1, min=1, max=63999),
+        _field("start_channel", "Start channel", "int", 1, min=1, max=512)],
+        "fixed": {"type": "LINEAR", "rgb_order": "RGB"}},
+    "DDPDevices": {"label": "DDP (WLED, ESPixelStick …; OpenRGB 1.0 or newer)", "fields": [
+        _NAME, _IP, _field("port", "Port", "int", 4048, min=1, max=65535), _LEDS]},
+    "LEDStripDevices": {"label": "LED strip on a serial port (Arduino: Adalight, TPM2 …)", "fields": [
+        _NAME, _field("port", "Serial port", "serial"), _LEDS,
+        _field("baud", "Baud rate", "int", 115200, min=9600, max=4000000),
+        _field("protocol", "Protocol", "choice", "adalight",
+               choices=["adalight", "tpm2", "keyboard_visualizer", "basic_i2c"])]},
+    "LIFXDevices": {"label": "LIFX lamp", "fields": [_NAME, _IP]},
+    "YeelightDevices": {"label": "Yeelight lamp", "fields": [
+        _IP, _field("music_mode", "Music mode (faster updates)", "switch", False),
+        _field("host_ip", "IP address of this computer (music mode)", "host", optional=True)]},
+    "GoveeDevices": {"label": "Govee lamp or strip (LAN control on)", "fields": [_IP]},
+    "ElgatoKeyLightDevices": {"label": "Elgato Key Light", "fields": [_IP]},
+    "ElgatoLightStripDevices": {"label": "Elgato Light Strip", "fields": [_IP]},
+    "KasaSmartDevices": {"label": "TP-Link Kasa smart bulb", "fields": [_NAME, _IP]},
+    "PhilipsWizDevices": {"label": "Philips WiZ lamp", "fields": [_IP]},
+}
+
+
+def clean_manual_device(raw):
+    """A device entry from the user, checked field by field. Raises ValueError with a readable text."""
+    if not isinstance(raw, dict) or raw.get("type") not in MANUAL_TYPES:
+        raise ValueError("Unknown device type")
+    kind = MANUAL_TYPES[raw["type"]]
+    out = {}
+    for f in kind["fields"]:
+        value = raw.get(f["key"], f["default"])
+        label = f["label"]
+        if f["kind"] == "int":
+            try:
+                value = int(value)
+            except (TypeError, ValueError):
+                raise ValueError(f"{label}: enter a whole number") from None
+            if not f["min"] <= value <= f["max"]:
+                raise ValueError(f"{label}: {f['min']} to {f['max']}")
+        elif f["kind"] == "switch":
+            value = bool(value)
+        elif f["kind"] == "choice":
+            if value not in f["choices"]:
+                raise ValueError(f"{label}: choose one of {', '.join(f['choices'])}")
+        else:
+            value = str(value or "").strip()
+            if not value:
+                if f.get("optional"):
+                    continue
+                if f["kind"] == "text":
+                    value = MANUAL_TYPES[raw["type"]]["label"].split(" (")[0]
+                else:
+                    raise ValueError(f"{label} is missing")
+            if f["kind"] == "host" and not _HOST.match(value):
+                raise ValueError(f"{label}: enter an address such as 192.168.1.50")
+            if f["kind"] == "serial" and not _SERIAL.match(value):
+                raise ValueError(f"{label}: choose a port such as /dev/ttyUSB0")
+            if f["kind"] == "text":
+                value = "".join(ch for ch in value if ch.isprintable())[:60]
+        out[f["key"]] = value
+    out.update(kind.get("fixed", {}))
+    return out
+
+
+def serial_ports():
+    ports = []
+    for folder, prefixes in (("/dev/serial/by-id", ("",)), ("/dev", ("ttyUSB", "ttyACM"))):
+        try:
+            names = sorted(os.listdir(folder))
+        except OSError:
+            continue
+        ports += [os.path.join(folder, n) for n in names if n.startswith(prefixes)]
+    return [p for p in ports if _SERIAL.match(p)]
+
+
+def read_config(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        raise ValueError("The OpenRGB settings of LiFaCo's server cannot be read") from None
+    return data if isinstance(data, dict) else {}
+
+
+def write_config(path, data):
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+    os.replace(tmp, path)
 # The AppImage does not bundle libusb: the system's package for it (best effort).
 LIBUSB_PACKAGE = {"apt-get": "libusb-1.0-0", "dnf": "libusb1", "pacman": "libusb", "zypper": "libusb-1_0-0",
                   "xbps-install": "libusb", "apk": "libusb"}
@@ -152,6 +264,18 @@ def upstream_command(kind, path):
     return ["sh", "-c", script, "sh", path, wrapper]
 
 
+def _config_file():
+    return os.path.join(CONFIG_DIR, "OpenRGB.json")
+
+
+def _unit_active():
+    if not shutil.which("systemctl"):
+        return False
+    done = subprocess.run(["systemctl", "is-active", "--quiet", f"{UNIT}.service"], capture_output=True, timeout=10,
+                          check=False)
+    return done.returncode == 0
+
+
 class OpenRgbHelper:
     id = "openrgb"
     name = "OpenRGB"
@@ -160,6 +284,31 @@ class OpenRgbHelper:
         self.lock = threading.Lock()
         self.installing = False
         self.error = ""
+        self._options = {}            # binary -> options its --help lists
+
+    def _supports(self, binary, option):
+        if binary not in self._options:
+            try:
+                done = subprocess.run([binary, "--help"], capture_output=True, text=True, timeout=30, check=False,
+                                      stdin=subprocess.DEVNULL)
+                self._options[binary] = set(re.findall(r"--[a-z][a-z-]+", done.stdout + done.stderr))
+            except (OSError, subprocess.SubprocessError):
+                return False
+        return option in self._options[binary]
+
+    def server_command(self, binary):
+        """The transient unit: root (the hardware needs it), LiFaCo's own settings folder, reachable only from this
+        computer. With --server-host the server listens on 127.0.0.1 only, so it may reach devices on the local
+        network (lamps, E1.31 controllers); without it all network traffic except localhost is blocked."""
+        local_only = self._supports(binary, "--server-host")
+        command = ["systemd-run", f"--unit={UNIT}", "--collect", "--quiet", "-p", "IPAddressDeny=any",
+                   "-p", f"IPAddressAllow={LOCAL_NETWORKS if local_only else 'localhost'}",
+                   "-p", "Restart=on-failure", "-E", f"XDG_CONFIG_HOME={CONFIG_HOME}", binary, "--server"]
+        if local_only:
+            command += ["--server-host", "127.0.0.1"]
+        if self._supports(binary, "--config"):
+            command += ["--config", CONFIG_DIR]
+        return command
 
     def status(self):
         installed = shutil.which("openrgb") is not None
@@ -171,10 +320,11 @@ class OpenRgbHelper:
             hint = ("OpenRGB is not installed. LiFaCo can install it from your distribution or, if it is not "
                     "packaged there, from the OpenRGB project's official releases.")
         else:
-            hint = ("OpenRGB is installed, but its server is not running. Start it with the command "
-                    "'sudo openrgb --server' (it needs administrator rights to reach the hardware).")
+            hint = ("OpenRGB is installed, but its server is not running. LiFaCo starts it when the plugin is "
+                    "switched on" + ("." if _systemd() else "; on this system start it yourself: sudo openrgb --server"))
         return {"id": self.id, "name": self.name, "installed": installed, "server_running": running,
-                "can_install": True, "installing": self.installing, "error": self.error, "hint": hint}
+                "can_install": True, "installing": self.installing, "error": self.error, "hint": hint,
+                "manual_devices": True}
 
     def ensure_server(self):
         """Start the OpenRGB server if it is not running (called when a plugin that may start it is switched on).
@@ -189,8 +339,11 @@ class OpenRgbHelper:
             return "OpenRGB is not installed"
         if not _systemd():
             return "Starting the server automatically needs systemd. Start it yourself: sudo openrgb --server"
-        command = ["systemd-run", f"--unit={UNIT}", "--collect", "--quiet", "-p", "IPAddressDeny=any",
-                   "-p", "IPAddressAllow=localhost", "-p", "Restart=on-failure", binary, "--server"]
+        try:
+            os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
+        except OSError as e:
+            return f"Cannot create the OpenRGB settings folder: {e}"
+        command = self.server_command(binary)
         try:
             done = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)
         except (OSError, subprocess.SubprocessError) as e:
@@ -207,6 +360,48 @@ class OpenRgbHelper:
         """Stop the server LiFaCo started (does nothing if the user runs his own)."""
         if _systemd() and shutil.which("systemctl"):
             subprocess.run(["systemctl", "stop", f"{UNIT}.service"], capture_output=True, timeout=30, check=False)
+
+    # --- devices added by hand ------------------------------------------------------
+    def manual_config(self):
+        """What the settings page needs: the device types, the devices and where they apply."""
+        try:
+            data = read_config(_config_file())
+            error = ""
+        except ValueError as e:
+            data, error = {}, str(e)
+        devices = []
+        for key in MANUAL_TYPES:
+            section = data.get(key) if isinstance(data.get(key), dict) else {}
+            for entry in section.get("devices", []) if isinstance(section.get("devices"), list) else []:
+                if isinstance(entry, dict):
+                    devices.append(dict(entry, type=key))
+        own = _unit_active()
+        foreign = _server_running() and not own
+        return {"types": [dict(t, id=k) for k, t in MANUAL_TYPES.items()], "devices": devices,
+                "serial_ports": serial_ports(), "error": error, "server_managed": own,
+                "note": ("An OpenRGB server that LiFaCo did not start is running. Devices added here are used by the "
+                         "server LiFaCo starts; stop the other one to use them.") if foreign else ""}
+
+    def set_manual_devices(self, entries):
+        """Replace the devices added by hand and restart LiFaCo's server so that it finds them."""
+        if not isinstance(entries, list) or len(entries) > MAX_MANUAL:
+            raise ValueError(f"At most {MAX_MANUAL} devices")
+        cleaned = [(e["type"], clean_manual_device(e)) for e in entries if isinstance(e, dict)]
+        with self.lock:
+            own = _unit_active()
+            if own:
+                self.stop_server()           # first: a running server could write its old settings back
+            data = read_config(_config_file())
+            for key in MANUAL_TYPES:
+                items = [entry for kind, entry in cleaned if kind == key]
+                if items:
+                    data[key] = {"devices": items}
+                else:
+                    data.pop(key, None)
+            write_config(_config_file(), data)
+            problem = self.ensure_server() if own else ""
+        log.info("OpenRGB: %d devices added by hand", len(cleaned))
+        return problem
 
     def start_install(self):
         """Install the OpenRGB package in the background. Returns the current status."""

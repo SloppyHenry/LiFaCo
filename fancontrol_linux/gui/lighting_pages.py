@@ -1,6 +1,7 @@
 """Settings → LED devices (manage, search and install plugins) and the Light section (one card per device)."""
 
 import base64
+import time
 
 import gi
 
@@ -14,6 +15,7 @@ from ..ipc import Client  # noqa: E402
 from . import common as ui  # noqa: E402
 from .util import c_to_disp, disp_to_c, run_async, temp_unit  # noqa: E402
 
+EDIT_QUIET = 3.0            # seconds after an edit in which refreshes leave a card alone (sliders being dragged)
 GUIDE_URL = "https://github.com/SloppyHenry/LiFaCo-plugins/blob/main/docs/plugin-guide.md"
 LIGHT_TEXT = ("Control the RGB LEDs of your mainboard, graphics card, fans, coolers and LED strips. Lighting is "
               "provided by plugins: switch on the ones you need in <b>Settings → LED devices</b>, or search the "
@@ -180,6 +182,24 @@ class LedPage(Adw.Bin):
                                       css_classes=["error"]))
         for h in p.get("helpers", []):
             row.add_row(self._helper_row(p, h))
+        if p["status"] == "running":
+            rescan = Adw.ActionRow(title="Search the hardware again",
+                                   subtitle="After plugging in a device or changing something in the BIOS")
+            button = Gtk.Button(label="Search", valign=Gtk.Align.CENTER)
+            button.connect("clicked", lambda b: self._hardware_rescan(b, p))
+            rescan.add_suffix(button)
+            row.add_row(rescan)
+        for h in p.get("helpers", []):
+            if h.get("manual_devices") and h["installed"]:
+                manual = Adw.ActionRow(
+                    title="Devices you add yourself",
+                    subtitle=f"Network lamps, LED controllers and LED strips that {h['name']} cannot find by itself",
+                    subtitle_lines=0)
+                button = Gtk.Button(label="Manage …", valign=Gtk.Align.CENTER)
+                button.connect("clicked", lambda *_, hid=h["id"], name=h["name"]: ManualDevicesDialog(
+                    self.win, self.slow, hid, name, self.refresh).present())
+                manual.add_suffix(button)
+                row.add_row(manual)
         if p["missing_commands"]:
             row.add_row(Adw.ActionRow(title="Missing program", css_classes=["warning"], subtitle_lines=0,
                                       subtitle="Needs: " + ", ".join(p["missing_commands"])))
@@ -226,6 +246,17 @@ class LedPage(Adw.Bin):
             row.add_suffix(button)
         return row
 
+    def _hardware_rescan(self, button, p):
+        button.set_sensitive(False)
+        button.set_label("Searching …")
+
+        def done(result):
+            self.win.toast(f"{p['name']}: {result['devices']} devices – more may appear in a few seconds")
+            self.win.light_refresh()
+            self.plugins = []
+            self.refresh()
+        run_async(lambda: self.slow.call("plugin_hardware_rescan", id=p["id"]), done, self._fail)
+
     def _check_helpers(self, plugins, pid):
         """After installing a plugin: if it needs software that is missing, ask right away whether to install it."""
         for pl in plugins:
@@ -244,8 +275,8 @@ class LedPage(Adw.Bin):
             heading=f"Install {h['name']}?",
             body=f"The {p['name']} plugin needs the {h['name']} program. LiFaCo installs it with administrator rights: from your "
                  "distribution's package repository, or, if it is not packaged there, the official release from "
-                 "the OpenRGB project (codeberg.org/OpenRGB). It does not start a service or change anything else; "
-                 "you start the server yourself when you want to use it.")
+                 "the OpenRGB project (codeberg.org/OpenRGB). No boot service is set up: LiFaCo starts the server "
+                 "only while the plugin is switched on.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("install", "Install")
         dialog.set_response_appearance("install", Adw.ResponseAppearance.SUGGESTED)
@@ -393,6 +424,161 @@ class LedPage(Adw.Bin):
                               lambda plugins: (self.win.toast("Plugin installed – switch it on under Plugins"),
                                                self.refresh(plugins), self._check_helpers(plugins, _plugin_id(plugins))),
                               self._fail))
+
+
+class ManualDevicesDialog:
+    """Devices a helper's server cannot find by itself (OpenRGB: E1.31, DDP, serial LED strips, network lamps)."""
+
+    def __init__(self, win, client, hid, name, on_changed):
+        self.win, self.client, self.hid, self.name, self.on_changed = win, client, hid, name, on_changed
+        self.config = None
+        self.rows = []
+        self.dialog = Adw.Dialog(title=f"{name} devices", content_width=520, content_height=620)
+        self.nav = Adw.NavigationView()
+        self.dialog.set_child(self.nav)
+
+        page = Adw.PreferencesPage()
+        self.note = Adw.PreferencesGroup()
+        page.add(self.note)
+        self.note_row = None
+        self.group = Adw.PreferencesGroup(
+            title="Added by hand",
+            description=f"{name} finds mainboards, graphics cards, RAM, keyboards and mice by itself. Devices on the "
+                        "network or on a serial port have to be entered here. Changes restart the server; that takes "
+                        "a few seconds.")
+        add = Gtk.Button(icon_name="list-add-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
+                         tooltip_text="Add a device")
+        add.connect("clicked", lambda *_: self._open_form())
+        self.group.set_header_suffix(add)
+        page.add(self.group)
+        self.nav.add(self._page(page, f"{name} devices", "list"))
+        self._load()
+
+    @staticmethod
+    def _page(content, title, tag):
+        view = Adw.ToolbarView(content=content)
+        view.add_top_bar(Adw.HeaderBar())
+        return Adw.NavigationPage(child=view, title=title, tag=tag)
+
+    def present(self):
+        self.dialog.present(self.win)
+
+    def _load(self):
+        run_async(lambda: self.client.call("helper_devices", id=self.hid), self._show, self._error)
+
+    def _error(self, error):
+        self.win.toast(str(error))
+
+    def _show(self, config):
+        self.config = config
+        for row in self.rows:
+            self.group.remove(row)
+        self.rows = []
+        if self.note_row:
+            self.note.remove(self.note_row)
+            self.note_row = None
+        text = config.get("problem") or config.get("error") or config.get("note")
+        if text:
+            self.note_row = Adw.ActionRow(title="Note", subtitle=GLib.markup_escape_text(text), subtitle_lines=0,
+                                          css_classes=["warning"])
+            self.note.add(self.note_row)
+        labels = {t["id"]: t["label"].split(" (")[0] for t in config["types"]}
+        if not config["devices"]:
+            row = Adw.ActionRow(title="No devices added", subtitle="Add one with the + button")
+            self.group.add(row)
+            self.rows.append(row)
+        for i, d in enumerate(config["devices"]):
+            where = d.get("ip") or d.get("port") or ""
+            detail = " · ".join(str(x) for x in (labels.get(d["type"], d["type"]), where,
+                                                 f"{d['num_leds']} LEDs" if d.get("num_leds") else "") if x)
+            row = Adw.ActionRow(title=GLib.markup_escape_text(d.get("name") or labels.get(d["type"], "Device")),
+                                subtitle=GLib.markup_escape_text(detail))
+            remove = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
+                                css_classes=["flat"], tooltip_text="Remove")
+            remove.connect("clicked", lambda *_, i=i: self._save(
+                [x for j, x in enumerate(self.config["devices"]) if j != i]))
+            row.add_suffix(remove)
+            self.group.add(row)
+            self.rows.append(row)
+
+    def _save(self, devices):
+        self.dialog.set_sensitive(False)
+
+        def done(config):
+            self.dialog.set_sensitive(True)
+            self._show(config)
+            self.win.toast(f"{self.name} restarted with the new devices" if not config.get("problem")
+                           else config["problem"])
+            self.on_changed()
+            self.win.light_refresh()
+
+        def failed(error):
+            self.dialog.set_sensitive(True)
+            self._error(error)
+        run_async(lambda: self.client.call("helper_devices", id=self.hid, devices=devices), done, failed)
+
+    # --- the form for a new device --------------------------------------------------------
+    def _open_form(self):
+        if not self.config:
+            return
+        types = self.config["types"]
+        page = Adw.PreferencesPage()
+        kind_group = Adw.PreferencesGroup()
+        kind = Adw.ComboRow(title="Kind of device", model=Gtk.StringList.new([t["label"] for t in types]))
+        kind_group.add(kind)
+        page.add(kind_group)
+        fields_group = Adw.PreferencesGroup()
+        page.add(fields_group)
+        values, field_rows = {}, []
+
+        def build(*_):
+            for r in field_rows:
+                fields_group.remove(r)
+            field_rows.clear()
+            values.clear()
+            t = types[kind.get_selected()]
+            values["type"] = t["id"]
+            for f in t["fields"]:
+                r = self._field_row(f, values)
+                fields_group.add(r)
+                field_rows.append(r)
+        kind.connect("notify::selected", build)
+        build()
+
+        add = Gtk.Button(label="Add device", halign=Gtk.Align.CENTER, css_classes=["suggested-action", "pill"],
+                         margin_top=12)
+
+        def submit(*_):
+            self.nav.pop()
+            self._save(list(self.config["devices"]) + [dict(values)])
+        add.connect("clicked", submit)
+        button_group = Adw.PreferencesGroup()
+        button_group.add(add)
+        page.add(button_group)
+        self.nav.push(self._page(page, "Add a device", "add"))
+
+    def _field_row(self, f, values):
+        key = f["key"]
+        values[key] = f["default"]
+        if f["kind"] == "int":
+            adj = Gtk.Adjustment(lower=f["min"], upper=f["max"], step_increment=1, page_increment=10,
+                                 value=f["default"])
+            row = Adw.SpinRow(title=f["label"], adjustment=adj)
+            row.connect("notify::value", lambda r, _p: values.__setitem__(key, int(r.get_value())))
+        elif f["kind"] == "switch":
+            row = Adw.SwitchRow(title=f["label"], active=bool(f["default"]))
+            row.connect("notify::active", lambda r, _p: values.__setitem__(key, r.get_active()))
+        elif f["kind"] in ("choice", "serial"):
+            choices = f["choices"] if f["kind"] == "choice" else (self.config["serial_ports"] or ["/dev/ttyUSB0"])
+            row = Adw.ComboRow(title=f["label"], model=Gtk.StringList.new(choices))
+            if f["kind"] == "serial" and not self.config["serial_ports"]:
+                row.set_subtitle("No serial port found – plug the device in and open this dialog again")
+            values[key] = choices[0]
+            row.connect("notify::selected", lambda r, _p: values.__setitem__(key, choices[r.get_selected()]))
+        else:
+            row = Adw.EntryRow(title=f["label"])
+            row.connect("changed", lambda r: values.__setitem__(key, r.get_text().strip()))
+        return row
 
 
 def _plugin_id(plugins):
@@ -570,6 +756,7 @@ class DeviceCard(Gtk.Box):
         self.modes = {m["name"]: m for m in device["modes"]}
         saved = device.get("effect") or {}
         self.pending = None
+        self.edited = 0.0                    # when the user last changed something on this card
         self.loading = True
         self.stops = saved.get("stops") if saved.get("type") == "temperature" else None
 
@@ -602,14 +789,54 @@ class DeviceCard(Gtk.Box):
         self.append(foot)
 
         self.revealer = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
-        self.chevron.connect("toggled", lambda b: self.revealer.set_reveal_child(b.get_active()))
+        opened = getattr(win, "light_open", set())       # stays open when the cards are rebuilt
+        self.chevron.connect("toggled", lambda b: (
+            self.revealer.set_reveal_child(b.get_active()),
+            (opened.add if b.get_active() else opened.discard)(device["key"])))
         self.controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.revealer.set_child(self.controls)
         self.append(self.revealer)
         self._build_controls(saved)
+        self._build_zone_sizes()
+        if device["key"] in opened:
+            self.chevron.set_active(True)
 
         self.apply_state(device)
         self.loading = False
+
+    def _build_zone_sizes(self):
+        """Addressable headers: the user says how many LEDs are connected (the controller cannot know)."""
+        zones = [(i, z) for i, z in enumerate(self.device["zones"]) if "min_leds" in z]
+        if not zones:
+            return
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=4)
+        box.append(Gtk.Label(label="Connected LEDs", xalign=0, css_classes=["heading"]))
+        box.append(ui.caption("How many LEDs hang on each header. Count them or look at the product data; "
+                              "too many does no harm."))
+        for i, z in zones:
+            line = Gtk.Box(spacing=8)
+            line.append(Gtk.Label(label=z["name"], xalign=0, hexpand=True, ellipsize=3))
+            spin = Gtk.SpinButton.new_with_range(z["min_leds"], z["max_leds"], 1)
+            spin.set_value(z["leds"])
+            spin.set_valign(Gtk.Align.CENTER)
+            spin.connect("value-changed", lambda b, i=i: self._zone_size_changed(i, b.get_value_as_int()))
+            line.append(spin)
+            box.append(line)
+        self.controls.append(box)
+        self.resize_pending = None
+
+    def _zone_size_changed(self, zone, leds):
+        self.edited = time.monotonic()
+        if self.resize_pending:
+            GLib.source_remove(self.resize_pending)
+
+        def send():
+            self.resize_pending = None
+            run_async(lambda: self.win.client.call("light_resize_zone", device=self.device["key"], zone=zone,
+                                                   leds=leds),
+                      lambda _d: self.win.light_refresh(), lambda e: self.set_error(str(e)))
+            return False
+        self.resize_pending = GLib.timeout_add(900, send)
 
     # --- controls ---------------------------------------------------------------------
     def _build_controls(self, saved):
@@ -769,6 +996,7 @@ class DeviceCard(Gtk.Box):
             return
         self._layout()
         self.bar.set_effect(self.effect())
+        self.edited = time.monotonic()
         if self.pending:
             GLib.source_remove(self.pending)
         self.pending = GLib.timeout_add(250, self._send)
@@ -813,6 +1041,7 @@ class LightSection(Gtk.Box):
         self.cards = {}
         self.timer = None
         win.light_refresh = self.refresh
+        win.light_open = set()           # keys of the cards whose settings are open
         self.connect("map", self._on_map)
         self.connect("unmap", self._on_unmap)
 
@@ -882,7 +1111,7 @@ class LightSection(Gtk.Box):
         if signature == self.signature:
             for d in devices:                      # apply changes made elsewhere, but never while the user is editing
                 card = self.cards.get(d["key"])
-                if card and not card.pending:
+                if card and not card.pending and time.monotonic() - card.edited > EDIT_QUIET:
                     card.apply_state(d)
             return
         self.signature = signature
