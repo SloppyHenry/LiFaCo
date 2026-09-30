@@ -88,7 +88,7 @@ class ManifestTests(unittest.TestCase):
         m = mf.load_manifest(TOML)
         self.assertEqual((m["id"], m["version"], m["api"], m["entry"]), ("test-plugin", "1.2.3", 1, "plugin.py"))
         self.assertEqual(m["tags"], ["alpha", "beta"])
-        self.assertEqual(m["permissions"], {"network": True, "usb": ["1462:7d25"], "i2c": False})
+        self.assertEqual(m["permissions"], {"network": True, "usb": ["1462:7d25"], "i2c": False, "start": []})
         self.assertEqual([s["key"] for s in m["settings"]], ["host", "count", "mode"])
         self.assertEqual(m["settings"][2]["default"], "a")
 
@@ -870,3 +870,121 @@ class RetryTests(ManagerBase):
         self.assertGreater(waits[2], waits[0])        # 4 s, 8 s, 16 s … not 4 s forever
         warnings = [r for r in logs.records if r.levelname == "WARNING"]
         self.assertEqual(len(warnings), 1)            # the same failure is reported once
+
+
+class ServerStartTests(ManagerBase):
+    """A plugin may start a helper's server while it is on; that needs the user's approval."""
+
+    START_TOML = TOML.replace("[permissions]", '[permissions]\nstart = ["openrgb"]')
+
+    def setUp(self):
+        super().setUp()
+        from fancontrol_linux.lighting import helpers
+        self.helpers = helpers
+        self.calls = []
+        self.real = helpers.HELPERS["openrgb"]
+
+        class Stub:
+            def ensure_server(_s):
+                self.calls.append("start")
+                return ""
+
+            def stop_server(_s):
+                self.calls.append("stop")
+
+            def status(_s):
+                return {"id": "openrgb", "name": "OpenRGB", "installed": True, "server_running": True,
+                        "can_install": True, "installing": False, "error": "", "hint": ""}
+        helpers.HELPERS["openrgb"] = Stub()
+        import fancontrol_linux.lighting.manager as manager_module
+        manager_module.HELPERS = helpers.HELPERS
+
+    def tearDown(self):
+        self.helpers.HELPERS["openrgb"] = self.real
+        super().tearDown()
+
+    def install(self, toml=None):
+        toml = toml or self.START_TOML
+        self.m.install_file(base64.b64encode(make_zip({"plugin.toml": toml, "plugin.py": PLUGIN_PY})).decode())
+
+    def test_permission_is_shown_and_needed(self):
+        self.install()
+        p = self.m.list_plugins()[0]
+        self.assertTrue(any("OpenRGB server" in line and "administrator" in line for line in p["permission_lines"]))
+        with self.assertRaises(LightingError):
+            self.m.enable("test-plugin", True)                      # not approved yet: nothing is started
+        self.assertEqual(self.calls, [])
+
+    def test_server_starts_with_the_plugin_and_stops_when_it_is_switched_off_or_removed(self):
+        self.install()
+        self.m.enable("test-plugin", True, approve=True)
+        self.assertTrue(self.wait(lambda: "start" in self.calls))
+        self.m.enable("test-plugin", False)
+        self.assertEqual(self.calls[-1], "stop")
+        self.m.enable("test-plugin", True, approve=True)
+        self.assertTrue(self.wait(lambda: self.calls.count("start") == 2))
+        self.m.remove("test-plugin")
+        self.assertEqual(self.calls[-1], "stop")
+
+    def test_restart_and_settings_changes_do_not_stop_the_server(self):
+        self.install()
+        self.m.enable("test-plugin", True, approve=True)
+        self.assertTrue(self.wait(lambda: "start" in self.calls))
+        self.m.set_settings("test-plugin", {"count": 3})
+        self.m.restart("test-plugin")
+        self.assertNotIn("stop", self.calls)
+
+    def test_old_approvals_stay_valid_and_new_permission_needs_a_new_one(self):
+        plain = mf.load_manifest(TOML)["permissions"]
+        self.assertEqual(mf.permission_key(plain), "net=1;usb=1462:7d25;i2c=0")      # unchanged format
+        with_start = mf.load_manifest(self.START_TOML)["permissions"]
+        self.assertNotEqual(mf.permission_key(plain), mf.permission_key(with_start))
+
+
+class OpenRgbServerCommandTests(unittest.TestCase):
+    def setUp(self):
+        from fancontrol_linux.lighting import helpers
+        self.h = helpers
+        self.saved = (helpers.shutil.which, helpers._systemd, helpers._server_running, helpers.subprocess.run,
+                      helpers.time.sleep)
+        self.helper = helpers.OpenRgbHelper()
+
+    def tearDown(self):
+        (self.h.shutil.which, self.h._systemd, self.h._server_running, self.h.subprocess.run,
+         self.h.time.sleep) = self.saved
+
+    def test_starts_a_transient_local_only_root_unit(self):
+        ran = []
+        state = {"up": False}
+        self.h.shutil.which = lambda n: "/usr/bin/" + n
+        self.h._systemd = lambda: True
+        self.h._server_running = lambda: state["up"]
+        self.h.time.sleep = lambda s: None
+
+        def fake_run(cmd, **kw):
+            ran.append(cmd)
+            state["up"] = True
+            from types import SimpleNamespace
+            return SimpleNamespace(returncode=0, stderr="", stdout="")
+        self.h.subprocess.run = fake_run
+        self.assertEqual(self.helper.ensure_server(), "")
+        cmd = ran[0]
+        self.assertEqual(cmd[0], "systemd-run")
+        self.assertIn("--unit=lifaco-openrgb", cmd)
+        self.assertIn("IPAddressAllow=localhost", cmd)
+        self.assertIn("IPAddressDeny=any", cmd)
+        self.assertEqual(cmd[-2:], ["/usr/bin/openrgb", "--server"])
+        self.assertFalse(any("enable" in c for c in cmd))                         # nothing persistent
+
+    def test_nothing_is_started_when_a_server_already_runs_or_openrgb_is_missing(self):
+        ran = []
+        self.h.subprocess.run = lambda cmd, **kw: ran.append(cmd)
+        self.h._server_running = lambda: True
+        self.assertEqual(self.helper.ensure_server(), "")
+        self.h._server_running = lambda: False
+        self.h.shutil.which = lambda n: None
+        self.assertIn("not installed", self.helper.ensure_server())
+        self.h.shutil.which = lambda n: "/usr/bin/openrgb"
+        self.h._systemd = lambda: False
+        self.assertIn("systemd", self.helper.ensure_server())
+        self.assertEqual(ran, [])

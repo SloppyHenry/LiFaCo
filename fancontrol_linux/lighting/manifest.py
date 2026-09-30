@@ -168,7 +168,7 @@ def load_manifest(text):
     perms_raw = data.get("permissions", {})
     if not isinstance(perms_raw, dict):
         raise ManifestError("[permissions] must be a table")
-    unknown = set(perms_raw) - {"network", "usb", "i2c"}
+    unknown = set(perms_raw) - {"network", "usb", "i2c", "start"}
     if unknown:
         raise ManifestError(f"Unknown permission: {', '.join(sorted(unknown))}")
     usb = perms_raw.get("usb", [])
@@ -177,6 +177,10 @@ def load_manifest(text):
     permissions = {"network": bool(perms_raw.get("network", False)),
                    "usb": sorted({u.lower() for u in usb}),
                    "i2c": bool(perms_raw.get("i2c", False))}
+    start = perms_raw.get("start", [])
+    if not isinstance(start, list) or not all(isinstance(h, str) for h in start):
+        raise ManifestError("permissions.start must be a list of helper names such as [\"openrgb\"]")
+    permissions["start"] = sorted(set(start))
 
     settings, seen = [], set()
     raw_settings = data.get("settings", [])
@@ -268,6 +272,10 @@ def version_tuple(version):
     return tuple(int(p) for p in version.split("."))
 
 
+START_TEXT = {"openrgb": "Start the OpenRGB server as a background process with administrator rights while this "
+                         "plugin is on (only reachable from this computer; it scans the mainboard's I²C bus at start)"}
+
+
 def permission_lines(perms):
     """Human readable list of what a plugin may do, for the approval dialog."""
     lines = []
@@ -277,6 +285,9 @@ def permission_lines(perms):
         lines.append(f"Access the USB device {usb}")
     if perms["i2c"]:
         lines.append("Access the mainboard's I²C/SMBus (RAM and mainboard LEDs – careless writes can damage hardware)")
+    for helper in perms.get("start", []):
+        lines.append(START_TEXT.get(helper, f"Start the helper '{helper}' as a background process with "
+                                            "administrator rights"))
     if not lines:
         lines.append("No special access (cannot use the network or hardware)")
     return lines
@@ -284,4 +295,7 @@ def permission_lines(perms):
 
 def permission_key(perms):
     """Stable text form of the permissions; the approval is valid only while it stays the same."""
-    return f"net={int(perms['network'])};usb={','.join(perms['usb'])};i2c={int(perms['i2c'])}"
+    key = f"net={int(perms['network'])};usb={','.join(perms['usb'])};i2c={int(perms['i2c'])}"
+    if perms.get("start"):
+        key += f";start={','.join(perms['start'])}"      # only added when used: older approvals stay valid
+    return key

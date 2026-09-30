@@ -50,6 +50,12 @@ class PluginRuntime:
         self.stopping = False
         self.state, self.error = "starting", ""
         settings = self.manager.plugin_settings(self.pid)
+        for name in self.info["manifest"]["permissions"].get("start", []):     # approved by the user when enabling
+            helper = HELPERS.get(name)
+            if helper:
+                problem = helper.ensure_server()
+                if problem:
+                    log.warning("Plugin %s: %s", self.pid, problem)
         proc = PluginProcess(self.info, settings, self.manager.on_event)
         self.process = proc
         try:
@@ -273,7 +279,7 @@ class LightingManager:
 
     def _approved(self, pid):
         perms = self.infos[pid]["manifest"]["permissions"]
-        if not (perms["network"] or perms["usb"] or perms["i2c"]):
+        if not (perms["network"] or perms["usb"] or perms["i2c"] or perms.get("start")):
             return True            # a plugin without any special access needs no approval
         return self._entry(pid)["approved"] == mf.permission_key(perms)
 
@@ -345,7 +351,7 @@ class LightingManager:
                             "description": "AIO coolers, fan hubs and LED controllers found through liquidctl. "
                                            "Built into LiFaCo; follows the liquidctl switch in Settings → Hardware.",
                             "author": "LiFaCo", "license": "MIT", "homepage": "", "tags": [],
-                            "permissions": {"network": False, "usb": [], "i2c": False},
+                            "permissions": {"network": False, "usb": [], "i2c": False, "start": []},
                             "permission_lines": [], "needs_approval": False, "settings_schema": [], "settings": {},
                             "enabled": True, "status": "running", "error": "", "source": "builtin",
                             "devices": len(rt.devices), "missing_commands": []})
@@ -391,6 +397,7 @@ class LightingManager:
                 entry["enabled"] = False
                 self._save()
                 self._halt(pid)
+                self._stop_helpers(info)
         self._sync_udev()
 
     def set_settings(self, pid, values):
@@ -449,8 +456,17 @@ class LightingManager:
         self._after_install(manifest, source)
         log.info("Plugin %s %s installed", manifest["id"], manifest["version"])
 
+    def _stop_helpers(self, info):
+        """Servers LiFaCo started for a plugin stop with it (a server the user started himself is left alone)."""
+        for name in info["manifest"]["permissions"].get("start", []):
+            helper = HELPERS.get(name)
+            if helper:
+                helper.stop_server()
+
     def remove(self, pid):
         with self.lock:
+            if pid in self.infos:
+                self._stop_helpers(self.infos[pid])
             self._halt(pid)
             try:
                 store.remove_plugin(pid)

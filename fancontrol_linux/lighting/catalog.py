@@ -67,7 +67,7 @@ def _entry(raw, base):
             "tags": tags, "sha256": sha, "size": int(raw.get("size") or 0),
             "download": urllib.parse.urljoin(base, raw["download"]), "homepage": str(raw.get("homepage") or "")[:200],
             "permissions": {"network": bool(perms.get("network")), "usb": [str(u) for u in perms.get("usb", [])][:20],
-                            "i2c": bool(perms.get("i2c"))}}
+                            "i2c": bool(perms.get("i2c")), "start": [str(h) for h in perms.get("start", [])][:5]}}
 
 
 def search(entries, query):

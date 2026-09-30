@@ -117,7 +117,9 @@ them in *Settings → LED devices* (search field, one click) – or write your o
 | `virtual` | Pretend devices for trying it out |
 
 AIO coolers, fan hubs and LED controllers found through liquidctl need no plugin: their colour channels appear as devices automatically (built in, experimental, only volatile colours). The `openrgb` plugin checks whether OpenRGB is installed and can install it for you (with your confirmation): from
-your distribution's package repository or, if it is not packaged there, from the OpenRGB project's official releases; the OpenRGB server itself you start yourself (`sudo openrgb --server`). Planned: OpenRazer and a careful
+your distribution's package repository or, if it is not packaged there, from the OpenRGB project's official releases; while the plugin is on, LiFaCo starts the OpenRGB server for you (only after you approve it when switching the plugin on;
+as a temporary background process with administrator rights, reachable from this computer only, stopped again when you
+switch the plugin off - no permanent service is created). Planned: OpenRazer and a careful
 MSI Mystic Light plugin.
 
 LiFaCo draws the effects itself (static, breathing, rainbow, **colour that follows a temperature or a fan's speed**,

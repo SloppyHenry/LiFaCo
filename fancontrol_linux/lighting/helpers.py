@@ -15,10 +15,12 @@ import shutil
 import socket
 import subprocess
 import threading
+import time
 import urllib.request
 
 log = logging.getLogger("fancontrol-linuxd")
 OPENRGB_PORT = 6742
+UNIT = "lifaco-openrgb"      # transient systemd unit of the server LiFaCo starts
 OPENRGB_DOWNLOAD = "https://openrgb.org/releases.html"
 # The project's own releases (original repository). Only files below this address are ever downloaded.
 UPSTREAM_API = "https://codeberg.org/api/v1/repos/OpenRGB/OpenRGB/releases/latest"
@@ -173,6 +175,38 @@ class OpenRgbHelper:
                     "'sudo openrgb --server' (it needs administrator rights to reach the hardware).")
         return {"id": self.id, "name": self.name, "installed": installed, "server_running": running,
                 "can_install": True, "installing": self.installing, "error": self.error, "hint": hint}
+
+    def ensure_server(self):
+        """Start the OpenRGB server if it is not running (called when a plugin that may start it is switched on).
+
+        Runs as a transient systemd unit: root (the hardware needs it), only reachable from this computer, gone when
+        stopped or after a reboot (LiFaCo starts it again when the plugin is on). Returns an error text or ''.
+        """
+        if _server_running():
+            return ""
+        binary = shutil.which("openrgb")
+        if not binary:
+            return "OpenRGB is not installed"
+        if not _systemd():
+            return "Starting the server automatically needs systemd. Start it yourself: sudo openrgb --server"
+        command = ["systemd-run", f"--unit={UNIT}", "--collect", "--quiet", "-p", "IPAddressDeny=any",
+                   "-p", "IPAddressAllow=localhost", "-p", "Restart=on-failure", binary, "--server"]
+        try:
+            done = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)
+        except (OSError, subprocess.SubprocessError) as e:
+            return f"Cannot start the OpenRGB server: {e}"
+        if done.returncode != 0 and "already" not in (done.stderr or "").lower():
+            return "Cannot start the OpenRGB server: " + " ".join((done.stderr or "").strip().splitlines()[-2:])
+        for _ in range(60):                                   # the port opens after the hardware scan
+            if _server_running():
+                return ""
+            time.sleep(0.5)
+        return "The OpenRGB server was started but is not answering yet"
+
+    def stop_server(self):
+        """Stop the server LiFaCo started (does nothing if the user runs his own)."""
+        if _systemd() and shutil.which("systemctl"):
+            subprocess.run(["systemctl", "stop", f"{UNIT}.service"], capture_output=True, timeout=30, check=False)
 
     def start_install(self):
         """Install the OpenRGB package in the background. Returns the current status."""

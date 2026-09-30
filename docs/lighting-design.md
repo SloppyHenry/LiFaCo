@@ -69,7 +69,12 @@ installed, the project's own release from its original repository (codeberg.org/
 only files below that address): the official `.deb` for Debian/Ubuntu, otherwise the official AppImage (with a small
 wrapper in `/usr/local/bin`, plus the system's `libusb`). Downloads are over HTTPS only; the project publishes no
 checksums, so there is no further integrity check. Plugins cannot make the service run
-commands, and the helper creates no service and changes no boot setting. Checked in containers: Ubuntu 26.04
+commands, and the helper creates no permanent service and changes no boot setting. A plugin can ask (permission
+`start = ["openrgb"]`, shown to the user and approved when switching the plugin on) that LiFaCo starts the OpenRGB server
+while the plugin is on: a transient systemd unit `lifaco-openrgb` running as root with `IPAddressAllow=localhost` /
+`IPAddressDeny=any`, restarted on failure, stopped when the plugin is switched off or removed (a server the user
+started himself is never stopped). LiFaCo starts it again when the service comes up with the plugin on. The unit
+command is unit-tested; it has **not** been run on a real systemd system yet. Checked in containers: Ubuntu 26.04
 (distribution package), Debian 13 and Ubuntu 24.04 (no package: the official `.deb` is tried first and fails on Debian 13
 because it needs a newer `libhidapi`; the AppImage is installed and its wrapper starts it, but a minimal container lacks
 the desktop libraries it needs, so `openrgb --version` was not reached), Alpine (distribution package).
