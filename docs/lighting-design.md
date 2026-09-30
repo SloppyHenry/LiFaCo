@@ -84,8 +84,13 @@ GUI / lifacoctl ──(Unix socket, JSON)──►  fancontrol-linuxd (root)
 * Effects per device are stored in `/etc/fancontrol-linux/lighting.json` (global for now; tying lighting to fan
   profiles is a possible later step).
 * IPC commands: `plugin_list`, `plugin_catalog`, `plugin_install`, `plugin_install_file`, `plugin_remove`,
-  `plugin_enable`, `plugin_settings`, `plugin_restart`, `light_devices`, `light_set`, `light_rescan`,
-  `light_identify`. They bypass the fan-control lock.
+  `plugin_enable`, `plugin_settings`, `plugin_restart`, `light_devices`, `light_set`, `light_power`,
+  `light_power_all`, `light_settings`, `light_rescan`, `light_identify`. They bypass the fan-control lock.
+* Lighting per profile: saving a profile stores the effect of every device in it, loading one applies them
+  (profiles without lighting leave the lights alone). A GUI config push never overwrites lighting.
+* A temperature effect can follow a temperature sensor or a fan output (`sensor` = `fan:<control id>`, scale in %).
+* Resume from suspend is detected (boot time vs monotonic time) and re-applies all colours; optional
+  'turn lights off when LiFaCo stops' (`off_on_exit`).
 * Robustness: a plugin that exits or fails is marked with its error and restarted with back-off (up to 5 times,
   then "Restart" in the UI); frames for slow plugins are dropped (newest wins) instead of queued.
 
@@ -137,6 +142,6 @@ read the bundled Python.
 4. `openrazer` plugin (D-Bus).
 5. `msi-mystic-light` plugin with the safeguards from section 2.
 6. WLED: mDNS without avahi-browse, per-segment control.
-7. Effect editor for the temperature gradient, effects that follow fan speed, lighting per profile, startup/resume
-   behaviour, Light entries in the tray.
+7. Done: gradient editor, effects that follow fan speed, lighting per profile, resume/off-on-exit, tray entries
+   (Lights on/off), overview with device tiles. Open: effects beyond the four built-in ones, per-zone control.
 8. Optional catalog signatures.

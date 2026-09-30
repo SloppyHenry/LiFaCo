@@ -323,7 +323,7 @@ class UdevTests(unittest.TestCase):
             mf.load_manifest('id = "ok-id"\nname = "x"\nversion = "1.0.0"\n[permissions]\nusb = ["1234:5678\\", GROUP=\\"root"]')
 
 
-class ManagerTests(unittest.TestCase):
+class ManagerBase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         os.environ["FANCONTROL_PLUGINS_DIR"] = os.path.join(self.tmp, "plugins")
@@ -352,6 +352,15 @@ class ManagerTests(unittest.TestCase):
         self.m.install_file(base64.b64encode(plugin_zip()).decode())
         self.m.enable("test-plugin", True, approve=True)
         self.assertTrue(self.wait(lambda: self.m.list_devices()))
+
+    def colors_now(self):
+        try:
+            return self.out()["colors"][0]
+        except (FileNotFoundError, ValueError):
+            return None
+
+
+class ManagerTests(ManagerBase):
 
     def test_enable_needs_approval_for_permissions(self):
         self.m.install_file(base64.b64encode(plugin_zip()).decode())
@@ -622,3 +631,96 @@ class LiquidctlLightingTests(unittest.TestCase):
             self.m.set_effect("liquidctl:nzxt-kraken", {"type": "hardware", "mode": "rainbow"})
         with self.assertRaises(mf.ManifestError):
             mf.load_manifest('id = "liquidctl"\nname = "x"\nversion = "1.0.0"')
+
+
+class LightingFeatureTests(ManagerBase):
+    """Power switches, profiles, fan-driven colours, resume and 'off on exit' (reuses the plugin fixture)."""
+
+    def test_power_off_and_on_restores_the_previous_effect(self):
+        self.install_and_enable()
+        key = "test-plugin:d1"
+        self.m.set_effect(key, {"type": "static", "color": [10, 20, 30]})
+        self.m.power(key, False)
+        self.assertFalse(next(d for d in self.m.list_devices() if d["key"] == key)["on"])
+        self.assertTrue(self.wait(lambda: self.colors_now() == [0, 0, 0]))
+        self.m.power(key, True)
+        self.assertTrue(self.wait(lambda: self.colors_now() == [10, 20, 30]))
+        self.assertTrue(next(d for d in self.m.list_devices() if d["key"] == key)["on"])
+
+    def test_power_on_without_history_uses_white_and_hardware_only_needs_a_choice(self):
+        self.install_and_enable()
+        self.m.power("test-plugin:d1", True)
+        self.assertEqual(self.m.list_devices()[0]["effect"]["color"], [255, 255, 255])
+        for d in self.m.runtimes["test-plugin"].devices:    # pretend d2 has no direct colours
+            if d["id"] == "d2":
+                d["direct"] = False
+        with self.assertRaises(LightingError):
+            self.m.power("test-plugin:d2", True)
+        self.assertEqual(self.m.power_all(False), 2)          # d1 goes black, d2 (hardware effects only) is released
+        self.assertIsNone(next(d for d in self.m.list_devices() if d["id"] == "d2")["effect"])
+
+    def test_profile_data_roundtrip(self):
+        self.install_and_enable()
+        self.m.set_effect("test-plugin:d1", {"type": "static", "color": [1, 2, 3]})
+        data = self.m.profile_data()
+        self.m.set_effect("test-plugin:d1", {"type": "off"})
+        self.m.load_profile_data(data)
+        self.assertEqual(self.m.list_devices()[0]["effect"]["color"], [1, 2, 3])
+        self.m.load_profile_data({"devices": {}})
+        self.assertIsNone(self.m.list_devices()[0]["effect"])
+        self.assertEqual(store.load_state()["devices"], {})
+
+    def test_temperature_effect_can_follow_a_fan(self):
+        self.install_and_enable()
+        m = LightingManager(temps=lambda: {"cpu": 90.0, "fan:pwm1": 100.0})
+        self.assertEqual(m._temps()[""], 90.0)                  # "hottest" ignores fan values
+        e = effects.normalize({"type": "temperature", "sensor": "fan:pwm1"})
+        self.assertEqual(e["stops"][0][0], 0)                    # fan stops run 0-100 %
+        self.assertEqual(effects.render(e, 1, 0, m._temps())[0], (255, 30, 0))
+
+    def test_resume_from_suspend_sends_everything_again(self):
+        self.install_and_enable()
+        self.m.set_effect("test-plugin:d1", {"type": "static", "color": [5, 5, 5]})
+        self.assertTrue(self.wait(lambda: self.m.applied))
+        self.m.boot_gap -= 10                                   # as if the machine slept for 10 s
+        self.m.applied.clear()
+        self.assertTrue(self.wait(lambda: self.m.applied))       # the loop re-applied without any user action
+        self.assertGreater(len(self.m.applied), 0)
+
+    def test_off_on_exit_sends_black_but_keeps_the_assignment(self):
+        self.install_and_enable()
+        self.m.set_effect("test-plugin:d1", {"type": "static", "color": [9, 9, 9]})
+        self.assertTrue(self.wait(lambda: self.colors_now() == [9, 9, 9]))
+        self.assertEqual(self.m.set_light_settings({"off_on_exit": True}), {"off_on_exit": True})
+        self.m.shutdown()
+        self.assertEqual(self.out()["colors"][0], [0, 0, 0])
+        self.assertEqual(store.load_state()["devices"]["test-plugin:d1"]["color"], [9, 9, 9])
+        self.assertTrue(store.load_state()["off_on_exit"])
+
+
+class ProfileLightingTests(unittest.TestCase):
+    def test_profile_config_keeps_and_validates_lighting(self):
+        from fancontrol_linux import config as cfgmod
+        cfg = cfgmod.normalize({"lighting": {"devices": {"a:b": {"type": "static", "color": [1, 2, 3]},
+                                                         "c:d": {"type": "nonsense"}}}})
+        self.assertEqual(list(cfg["lighting"]["devices"]), ["a:b"])                # invalid entries are dropped
+        self.assertIsNone(cfgmod.normalize({})["lighting"])                        # old profiles say nothing
+
+    def test_saving_and_loading_a_profile_carries_the_lights(self):
+        import fake_hwmon
+
+        from fancontrol_linux.daemon import Daemon
+        from fancontrol_linux.hwmon import Hardware
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, sub in (("FANCONTROL_PLUGINS_DIR", "plugins"), ("FANCONTROL_PLUGIN_DATA_DIR", "data"),
+                              ("FANCONTROL_CONFIG_DIR", "cfg")):
+                os.environ[name] = os.path.join(tmp, sub)
+            fake_hwmon.create(os.path.join(tmp, "hwmon"))
+            d = Daemon(hardware=Hardware(root=os.path.join(tmp, "hwmon"), nvidia=False))
+            d.lighting.state["devices"]["x:y"] = {"type": "static", "color": [7, 7, 7], "brightness": 100.0}
+            d.handle({"cmd": "save_profile", "name": "Gaming"})
+            d.lighting.state["devices"].clear()
+            d.handle({"cmd": "set_config", "config": d.handle({"cmd": "get_config"})})   # a GUI push must not wipe lights
+            d.lighting.state["devices"]["x:y"] = {"type": "off"}
+            d.handle({"cmd": "load_profile", "name": "Gaming"})
+            self.assertEqual(d.lighting.state["devices"]["x:y"]["color"], [7, 7, 7])

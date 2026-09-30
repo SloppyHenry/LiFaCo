@@ -46,6 +46,8 @@ def add_parsers(sub):
     ls.add_argument("--brightness", type=float, default=100)
     ls.add_argument("--speed", type=float, default=50)
     light.add_parser("identify", help="blink a device").add_argument("device")
+    for name in ("on", "off"):
+        light.add_parser(name, help=f"switch a device (default: all) {name}").add_argument("device", nargs="?", default="all")
     light.add_parser("rescan", help="look for devices again")
 
 
@@ -181,6 +183,11 @@ def _daemon_command(args, client):
             print("OK")
         elif a == "identify":
             client.call("light_identify", device=args.device)
+        elif a in ("on", "off"):
+            if args.device == "all":
+                print(f"{client.call('light_power_all', on=a == 'on')['count']} devices switched {a}")
+            else:
+                client.call("light_power", device=args.device, on=a == "on")
         elif a == "rescan":
             print(f"{len(client.call('light_rescan'))} devices")
     return 0

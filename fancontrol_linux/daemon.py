@@ -39,7 +39,10 @@ class Daemon:
 
     def _temp_values(self):
         temps = (self.engine.status_cache or {}).get("temps") or {}
-        return {sid: t.get("value") for sid, t in temps.items()}
+        values = {sid: t.get("value") for sid, t in temps.items()}
+        for pid, p in ((self.engine.status_cache or {}).get("pwms") or {}).items():   # fan outputs, for effects
+            values[f"fan:{pid}"] = p.get("percent")
+        return values
 
     # --- commands -------------------------------------------------------
     def handle(self, request):
@@ -71,17 +74,23 @@ class Daemon:
         return cfg
 
     def cmd_set_config(self, req):
-        return self._apply(req.get("config"))
+        cfg = req.get("config")
+        if isinstance(cfg, dict):     # lighting is owned by the lighting manager; clients must not overwrite it
+            cfg = dict(cfg, lighting=self.lighting.profile_data())
+        return self._apply(cfg)
 
     def cmd_list_profiles(self, _):
         return {"profiles": cfgmod.list_profiles(), "active": self.engine.config.get("profile")}
 
     def cmd_save_profile(self, req):
-        cfg = cfgmod.save_profile(req.get("name", ""), self.engine.config)
+        cfg = cfgmod.save_profile(req.get("name", ""), dict(self.engine.config, lighting=self.lighting.profile_data()))
         return self._apply(cfg)
 
     def cmd_load_profile(self, req):
-        return self._apply(cfgmod.load_profile(req.get("name", "")))
+        cfg = cfgmod.load_profile(req.get("name", ""))
+        if cfg.get("lighting") is not None:       # profiles saved before lighting existed leave the lights alone
+            self.lighting.load_profile_data(cfg["lighting"])
+        return self._apply(cfg)
 
     def cmd_delete_profile(self, req):
         cfgmod.delete_profile(req.get("name", ""))
@@ -141,6 +150,18 @@ class Daemon:
     def cmd_light_set(self, req):
         self.lighting.set_effect(str(req.get("device", "")), req.get("effect"))
         return self.lighting.list_devices()
+
+    def cmd_light_power(self, req):
+        self.lighting.power(str(req.get("device", "")), bool(req.get("on")))
+        return self.lighting.list_devices()
+
+    def cmd_light_power_all(self, req):
+        return {"count": self.lighting.power_all(bool(req.get("on")))}
+
+    def cmd_light_settings(self, req):
+        if "off_on_exit" in req:
+            return self.lighting.set_light_settings(req)
+        return self.lighting.get_light_settings()
 
     def cmd_light_rescan(self, _):
         self.lighting.rescan()

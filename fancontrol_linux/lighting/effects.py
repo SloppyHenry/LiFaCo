@@ -15,6 +15,8 @@ import math
 EFFECT_TYPES = ("off", "static", "breathing", "rainbow", "temperature", "hardware")
 ANIMATED = ("breathing", "rainbow", "temperature")
 DEFAULT_STOPS = [[30, [0, 90, 255]], [50, [0, 220, 90]], [65, [255, 170, 0]], [80, [255, 30, 0]]]
+FAN_STOPS = [[0, [0, 90, 255]], [40, [0, 220, 90]], [70, [255, 170, 0]], [100, [255, 30, 0]]]   # fan speed in %
+FAN_PREFIX = "fan:"      # a temperature effect whose "sensor" starts with this follows a fan output (percent)
 
 
 class EffectError(ValueError):
@@ -55,7 +57,7 @@ def normalize(raw):
         out["speed"] = _percent(raw.get("speed"), "speed", 50)
     if kind == "temperature":
         out["sensor"] = str(raw.get("sensor") or "")
-        stops = raw.get("stops") or DEFAULT_STOPS
+        stops = raw.get("stops") or (FAN_STOPS if out["sensor"].startswith(FAN_PREFIX) else DEFAULT_STOPS)
         try:
             parsed = sorted(([float(t), _color(c, "stop")] for t, c in stops), key=lambda s: s[0])
         except (TypeError, ValueError):

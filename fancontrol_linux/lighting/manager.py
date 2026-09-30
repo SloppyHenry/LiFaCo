@@ -19,6 +19,7 @@ log = logging.getLogger("fancontrol-linuxd")
 FAST, SLOW = 0.05, 0.25         # render interval with and without animated effects
 KEEPALIVE = 30.0                # resend unchanged colours this often (devices that reset, resume from sleep)
 MAX_RESTARTS = 5
+DEFAULT_ON = {"type": "static", "color": [255, 255, 255], "brightness": 100.0}
 
 
 class LightingError(ValueError):
@@ -199,6 +200,7 @@ class LightingManager:
         self.infos, self.broken = {}, {}
         self.applied = {}       # device key -> what was last sent to it: (kind, frame/effect json, time)
         self.errors = {}        # device key -> last error text
+        self.boot_gap = self._gap()
         self.builtin = None      # (provider, display name) for lighting that lives inside the service
         self.stop_event = threading.Event()
         self.t0 = time.monotonic()
@@ -225,8 +227,31 @@ class LightingManager:
         self.stop_event.set()
         with self.lock:
             runtimes = list(self.runtimes.values())
+            off = self.state["off_on_exit"]
+        if off:
+            self._all_black(runtimes)
         for rt in runtimes:
             rt.stop()
+
+    def _all_black(self, runtimes):
+        """Send black to every device that can show colours, and give the plugins a moment to deliver it."""
+        for rt in runtimes:
+            if rt.state == "running":
+                for dev in rt.devices:
+                    if dev["direct"]:
+                        rt.submit(dev["id"], "colors", [(0, 0, 0)] * dev["leds"])
+        end = time.monotonic() + 2.0
+        while time.monotonic() < end and any(getattr(rt, "pending", None) for rt in runtimes):
+            time.sleep(0.05)
+        time.sleep(0.2)
+
+    @staticmethod
+    def _gap():
+        """Time the computer has spent suspended: boot time minus monotonic time (monotonic stops during sleep)."""
+        try:
+            return time.clock_gettime(time.CLOCK_BOOTTIME) - time.monotonic()
+        except (AttributeError, OSError):
+            return 0.0
 
     def refresh(self):
         infos, broken = store.installed()
@@ -451,8 +476,9 @@ class LightingManager:
                     continue
                 for d in rt.devices:
                     key = f"{pid}:{d['id']}"
-                    out.append(dict(d, key=key, plugin=pid, plugin_name=rt.info["manifest"]["name"],
-                                    effect=self.state["devices"].get(key), error=self.errors.get(key, "")))
+                    effect = self.state["devices"].get(key)
+                    out.append(dict(d, key=key, plugin=pid, plugin_name=rt.info["manifest"]["name"], effect=effect,
+                                    on=bool(effect) and effect["type"] != "off", error=self.errors.get(key, "")))
             return out
 
     def _device(self, key):
@@ -483,6 +509,58 @@ class LightingManager:
             self._save()
         self.errors.pop(key, None)
 
+    def power(self, key, on):
+        """Switch one device off (colours black, or released if it only has hardware effects) or back on."""
+        with self.lock:
+            _rt, dev = self._device(key)
+            current = self.state["devices"].get(key)
+            if not on:
+                if current and current["type"] != "off":
+                    self.state["previous"][key] = current
+                self.set_effect(key, {"type": "off"} if dev["direct"] else None)
+                return
+            effect = self.state["previous"].get(key)
+            if not effect and current and current["type"] != "off":
+                effect = current
+            if not effect:
+                if not dev["direct"]:
+                    raise LightingError("Choose an effect for this device first")
+                effect = DEFAULT_ON
+            self.set_effect(key, effect)
+
+    def power_all(self, on):
+        """All devices on or off. Returns how many were switched."""
+        count = 0
+        for d in self.list_devices():
+            try:
+                self.power(d["key"], on)
+                count += 1
+            except LightingError:
+                continue
+        return count
+
+    def get_light_settings(self):
+        with self.lock:
+            return {"off_on_exit": self.state["off_on_exit"]}
+
+    def set_light_settings(self, values):
+        with self.lock:
+            self.state["off_on_exit"] = bool(values.get("off_on_exit"))
+            self._save()
+        return self.get_light_settings()
+
+    def profile_data(self):
+        """What a profile stores about lighting: the effect of every device."""
+        with self.lock:
+            return {"devices": {k: dict(v) for k, v in self.state["devices"].items()}}
+
+    def load_profile_data(self, data):
+        """Apply the lighting of a profile: devices not mentioned are released, the rest get their effect."""
+        with self.lock:
+            self.state["devices"] = {k: dict(v) for k, v in (data or {}).get("devices", {}).items()}
+            self.applied.clear()
+            self._save()
+
     def rescan(self):
         with self.lock:
             runtimes = list(self.runtimes.values())
@@ -510,8 +588,9 @@ class LightingManager:
             temps = {k: v for k, v in self.temps().items() if v is not None}
         except Exception:  # noqa: BLE001 – sensor source trouble must not stop lighting
             return {}
-        if temps:
-            temps[""] = max(temps.values())
+        hot = [v for k, v in temps.items() if not k.startswith(effects.FAN_PREFIX)]
+        if hot:
+            temps[""] = max(hot)
         return temps
 
     def _loop(self):
@@ -525,6 +604,11 @@ class LightingManager:
 
     def _tick(self):
         now = time.monotonic()
+        gap = self._gap()
+        if gap - self.boot_gap > 2.0:       # the computer was asleep: devices may have lost their colours
+            self.applied.clear()
+            log.info("Resumed from suspend, lighting is applied again")
+        self.boot_gap = gap
         animated = False
         temps = None
         with self.lock:

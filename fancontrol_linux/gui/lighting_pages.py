@@ -7,11 +7,12 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
+gi.require_version("Gsk", "4.0")
+from gi.repository import Adw, Gdk, Gio, GLib, Graphene, Gsk, Gtk  # noqa: E402
 
 from ..ipc import Client  # noqa: E402
 from . import common as ui  # noqa: E402
-from .util import run_async  # noqa: E402
+from .util import c_to_disp, disp_to_c, run_async, temp_unit  # noqa: E402
 
 GUIDE_URL = "https://github.com/SloppyHenry/LiFaCo-plugins/blob/main/docs/plugin-guide.md"
 LIGHT_TEXT = ("Control the RGB LEDs of your mainboard, graphics card, fans, coolers and LED strips. Lighting is "
@@ -43,6 +44,13 @@ class LedPage(Adw.Bin):
         self.open_rows = set()
 
         page = Adw.PreferencesPage()
+        behaviour = Adw.PreferencesGroup(title="Behaviour")
+        self.off_row = Adw.SwitchRow(title="Turn lights off when LiFaCo stops",
+                                     subtitle="Otherwise the devices keep their last colours")
+        self.off_row.connect("notify::active", self._off_on_exit_changed)
+        self.loading_settings = True
+        behaviour.add(self.off_row)
+        page.add(behaviour)
         self.installed_group = Adw.PreferencesGroup(
             title="Plugins",
             description="Each plugin controls one kind of lighting hardware. Plugins run in their own process "
@@ -78,8 +86,20 @@ class LedPage(Adw.Bin):
         self.connect("unmap", self._on_unmap)
 
     # --- refresh ----------------------------------------------------------------------
+    def _off_on_exit_changed(self, row, _p):
+        if not self.loading_settings:
+            active = row.get_active()
+            run_async(lambda: self.win.client.call("light_settings", off_on_exit=active), None,
+                      lambda e: self.win.toast(str(e)))
+
+    def _load_settings(self, settings):
+        self.loading_settings = True
+        self.off_row.set_active(bool(settings.get("off_on_exit")))
+        self.loading_settings = False
+
     def _on_map(self, *_):
         self.refresh()
+        run_async(lambda: self.win.client.call("light_settings"), self._load_settings, self._poll_error)
         self._search(self.query)
         self.timer = GLib.timeout_add_seconds(3, self._tick)
 
@@ -326,8 +346,155 @@ def _rgb(rgba):
     return [round(rgba.red * 255), round(rgba.green * 255), round(rgba.blue * 255)]
 
 
+TYPE_ICONS = {"mainboard": "computer-symbolic", "gpu": "fc-gpu-symbolic", "ram": "media-flash-symbolic",
+              "keyboard": "input-keyboard-symbolic", "mouse": "input-mouse-symbolic",
+              "headset": "audio-headphones-symbolic", "cooler": "fc-fan-symbolic", "fan": "fc-fan-symbolic",
+              "strip": "fc-light-symbolic", "case": "computer-symbolic", "other": "fc-light-symbolic"}
+RAINBOW = [(255, 0, 0), (255, 200, 0), (0, 220, 60), (0, 200, 255), (60, 80, 255), (200, 0, 255), (255, 0, 120)]
+
+
+def preview_stops(effect):
+    """Colours (evenly spaced) that stand for an effect in the small preview bar; None = not controlled."""
+    if not effect:
+        return None
+    kind = effect["type"]
+    bright = effect.get("brightness", 100) / 100.0
+
+    def dim(c):
+        return tuple(int(v * bright) for v in c)
+    if kind == "off":
+        return [(30, 34, 46)]
+    if kind in ("static", "breathing"):
+        return [dim(effect["color"])]
+    if kind == "rainbow":
+        return [dim(c) for c in RAINBOW]
+    if kind == "temperature":
+        return [dim(c) for _t, c in effect.get("stops") or [[0, (0, 90, 255)], [1, (0, 220, 90)], [2, (255, 170, 0)],
+                                                            [3, (255, 30, 0)]]]
+    colors = effect.get("colors") or []
+    return [dim(c) for c in colors] if colors else [dim(c) for c in RAINBOW]
+
+
+class GradientBar(Gtk.Widget):
+    """A thin rounded bar showing the colours of an effect (a solid colour, a rainbow, a temperature gradient …)."""
+
+    HEIGHT = 7
+
+    def __init__(self):
+        super().__init__(hexpand=True, valign=Gtk.Align.CENTER)
+        self.set_size_request(40, self.HEIGHT)
+        self.stops = None
+
+    def set_effect(self, effect):
+        self.stops = preview_stops(effect)
+        self.queue_draw()
+
+    def do_measure(self, orientation, _for_size):
+        size = self.HEIGHT if orientation == Gtk.Orientation.VERTICAL else 40
+        return size, size, -1, -1
+
+    def do_snapshot(self, snap):
+        width, height = self.get_width(), self.HEIGHT
+        rect = Graphene.Rect().init(0, 0, width, height)
+        rounded = Gsk.RoundedRect()
+        rounded.init_from_rect(rect, height / 2)
+        snap.push_rounded_clip(rounded)
+        if not self.stops:
+            snap.append_color(Gdk.RGBA(red=0.5, green=0.55, blue=0.65, alpha=0.25), rect)
+        elif len(self.stops) == 1:
+            snap.append_color(_rgba(self.stops[0]), rect)
+        else:
+            stops = []
+            for i, c in enumerate(self.stops):
+                stop = Gsk.ColorStop()
+                stop.offset = i / (len(self.stops) - 1)
+                stop.color = _rgba(c)
+                stops.append(stop)
+            snap.append_linear_gradient(rect, Graphene.Point().init(0, 0), Graphene.Point().init(width, 0), stops)
+        snap.pop()
+
+
+class StopsDialog:
+    """Edit the colour gradient of a 'follows temperature / fan speed' effect."""
+
+    def __init__(self, win, stops, is_fan, on_done):
+        self.win, self.is_fan, self.on_done = win, is_fan, on_done
+        self.stops = [[t, list(c)] for t, c in stops]
+        self.dialog = Adw.Dialog(title="Colour gradient", content_width=440)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_top=12, margin_bottom=16,
+                      margin_start=16, margin_end=16)
+        self.preview = GradientBar()
+        box.append(self.preview)
+        self.group = Adw.PreferencesGroup(
+            description="Below the first point the first colour is shown, above the last point the last colour. "
+                        "Between points the colour blends smoothly.")
+        box.append(self.group)
+        self.rows = []
+        add = Gtk.Button(label="Add a point", halign=Gtk.Align.START)
+        add.connect("clicked", lambda *_: self._add())
+        box.append(add)
+        done = Gtk.Button(label="Done", halign=Gtk.Align.END, css_classes=["suggested-action", "pill"])
+        done.connect("clicked", lambda *_: self._finish())
+        box.append(done)
+        self.dialog.set_child(box)
+        self._fill()
+
+    def _fill(self):
+        for row in self.rows:
+            self.group.remove(row)
+        self.rows = []
+        self.stops.sort(key=lambda s: s[0])
+        for i, (t, color) in enumerate(self.stops):
+            unit = "%" if self.is_fan else temp_unit()
+            shown = t if self.is_fan else c_to_disp(t)
+            adj = Gtk.Adjustment(lower=0 if self.is_fan else -20, upper=100 if self.is_fan else 250, step_increment=1,
+                                 page_increment=10, value=round(shown))
+            row = Adw.SpinRow(title=f"At {unit}", adjustment=adj)
+            row.connect("changed", lambda r, i=i: self._set_stop(i, r.get_value()))
+            button = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(with_alpha=False), valign=Gtk.Align.CENTER)
+            button.set_rgba(_rgba(color))
+            button.connect("notify::rgba", lambda b, _p, i=i: self._set_color(i, _rgb(b.get_rgba())))
+            row.add_suffix(button)
+            remove = Gtk.Button(icon_name="window-close-symbolic", css_classes=["flat", "circular"],
+                                valign=Gtk.Align.CENTER, sensitive=len(self.stops) > 2, tooltip_text="Remove")
+            remove.connect("clicked", lambda *_, i=i: self._remove(i))
+            row.add_suffix(remove)
+            self.group.add(row)
+            self.rows.append(row)
+        self._preview()
+
+    def _preview(self):
+        self.preview.set_effect({"type": "temperature", "stops": sorted(self.stops, key=lambda s: s[0])})
+
+    def _set_stop(self, i, value):
+        self.stops[i][0] = float(value) if self.is_fan else disp_to_c(value)
+        self._preview()
+
+    def _set_color(self, i, color):
+        self.stops[i][1] = color
+        self._preview()
+
+    def _add(self):
+        if len(self.stops) < 8:
+            self.stops.append([self.stops[-1][0] + 5, list(self.stops[-1][1])])
+            self._fill()
+
+    def _remove(self, i):
+        if len(self.stops) > 2:
+            del self.stops[i]
+            self._fill()
+
+    def _finish(self):
+        self.dialog.close()
+        self.on_done(sorted(self.stops, key=lambda s: s[0]))
+
+    def present(self):
+        self.dialog.present(self.win)
+
+
 class DeviceCard(Gtk.Box):
-    """Effect controls for one LED device. The card is the source of truth while the user edits."""
+    """One LED device as a tile: icon, name, power switch and a preview of its colours; the chevron opens the
+    settings. The tile is the source of truth while the user edits; the server state is applied when idle."""
 
     def __init__(self, win, device):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10, width_request=ui.CARD_WIDTH,
@@ -336,31 +503,59 @@ class DeviceCard(Gtk.Box):
         self.modes = {m["name"]: m for m in device["modes"]}
         saved = device.get("effect") or {}
         self.pending = None
+        self.loading = True
+        self.stops = saved.get("stops") if saved.get("type") == "temperature" else None
 
         head = Gtk.Box(spacing=8)
-        head.append(ui.icon_bubble("fc-light-symbolic"))
+        head.append(ui.icon_bubble(TYPE_ICONS.get(device["type"], "fc-light-symbolic")))
         names = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True, valign=Gtk.Align.CENTER)
         names.append(Gtk.Label(label=device["name"], xalign=0, ellipsize=3, css_classes=["fc-card-title"]))
-        names.append(ui.caption(f"{device['plugin_name']} · {device['leds']} LEDs"))
+        self.subtitle = ui.caption("")
+        names.append(self.subtitle)
         head.append(names)
-        identify = Gtk.Button(icon_name="find-location-symbolic", css_classes=["flat", "circular"],
-                              valign=Gtk.Align.CENTER, tooltip_text="Blink this device to find it",
-                              sensitive=device["direct"])
-        identify.connect("clicked", lambda *_: run_async(
-            lambda: win.client.call("light_identify", device=device["key"]), None, lambda e: win.toast(str(e))))
-        head.append(identify)
+        self.power = Gtk.Switch(valign=Gtk.Align.CENTER, tooltip_text="Lights on / off")
+        self.power.connect("notify::active", lambda s, _p: self._power(s.get_active()))
+        head.append(self.power)
         self.append(head)
 
-        # Effect choice. Keys: release, a software effect, or "hw:<mode name>".
+        self.bar = GradientBar()
+        self.append(self.bar)
+        foot = Gtk.Box(spacing=4)
+        self.summary = ui.caption("")
+        self.summary.set_hexpand(True)
+        foot.append(self.summary)
+        identify = Gtk.Button(icon_name="find-location-symbolic", css_classes=["flat", "circular"],
+                              tooltip_text="Blink this device to find it", sensitive=device["direct"])
+        identify.connect("clicked", lambda *_: run_async(
+            lambda: win.client.call("light_identify", device=device["key"]), None, lambda e: win.toast(str(e))))
+        foot.append(identify)
+        self.chevron = Gtk.ToggleButton(icon_name="pan-down-symbolic", css_classes=["flat", "circular"],
+                                        tooltip_text="Settings")
+        foot.append(self.chevron)
+        self.append(foot)
+
+        self.revealer = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.chevron.connect("toggled", lambda b: self.revealer.set_reveal_child(b.get_active()))
+        self.controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.revealer.set_child(self.controls)
+        self.append(self.revealer)
+        self._build_controls(saved)
+
+        self.apply_state(device)
+        self.loading = False
+
+    # --- controls ---------------------------------------------------------------------
+    def _build_controls(self, saved):
+        d, win = self.device, self.win
         self.choices = [("release", "Not controlled")]
-        if device["direct"]:
+        if d["direct"]:
             self.choices += list(EFFECTS)
-        self.choices += [(f"hw:{m['name']}", f"{m['name']}  (device)") for m in device["modes"]]
+        self.choices += [(f"hw:{m['name']}", f"{m['name']}  (device)") for m in d["modes"]]
         self.dropdown = Gtk.DropDown.new_from_strings([label for _k, label in self.choices])
         self.dropdown.set_enable_search(len(self.choices) > 12)
         if len(self.choices) > 12:
             self.dropdown.set_expression(Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
-        self.append(self.dropdown)
+        self.controls.append(self.dropdown)
 
         self.colors = [Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(with_alpha=False), valign=Gtk.Align.CENTER)
                        for _ in range(3)]
@@ -372,33 +567,42 @@ class DeviceCard(Gtk.Box):
         self.color_row.append(ui.caption("Colour"))
         for b in self.colors:
             self.color_row.append(b)
-        self.append(self.color_row)
+        self.controls.append(self.color_row)
 
         self.brightness = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
-        self.brightness.set_value(saved.get("brightness", 100))
         self.speed = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        self.brightness.set_value(saved.get("brightness", 100))
         self.speed.set_value(saved.get("speed", 50))
         self.brightness_box = ui.labeled("Brightness", self.brightness)
         self.speed_box = ui.labeled("Speed", self.speed)
         for s in (self.brightness, self.speed):
             s.connect("value-changed", lambda *_: self._changed())
-        self.append(self.brightness_box)
-        self.append(self.speed_box)
+        self.controls.append(self.brightness_box)
+        self.controls.append(self.speed_box)
 
-        temps = win.status["temps"] if win.status else {}
-        self.sensor_ids = [""] + list(temps)
-        self.sensor = Gtk.DropDown.new_from_strings(["Hottest sensor"] + [win.display_name(s) for s in temps])
-        try:
-            self.sensor.set_selected(self.sensor_ids.index(saved.get("sensor", "")))
-        except ValueError:
-            pass
-        self.sensor.connect("notify::selected", lambda *_: self._changed())
-        self.sensor_box = ui.labeled("Temperature source (blue when cool, red when hot)", self.sensor)
-        self.append(self.sensor_box)
+        status = win.status or {}
+        temps, pwms = status.get("temps", {}), status.get("pwms", {})
+        self.sources = [""] + list(temps) + [f"fan:{p}" for p in pwms]
+        labels = ["Hottest sensor"] + [win.display_name(t) for t in temps] + [
+            "Fan speed: " + (p_info.get("name") or p_info.get("label") or p) for p, p_info in pwms.items()]
+        self.source = Gtk.DropDown.new_from_strings(labels)
+        self.source.connect("notify::selected", lambda *_: self._source_changed())
+        self.edit_stops = Gtk.Button(label="Edit colour gradient …", halign=Gtk.Align.START)
+        self.edit_stops.connect("clicked", lambda *_: self._open_stops())
+        self.source_box = ui.labeled("Follows", self.source)
+        self.controls.append(self.source_box)
+        self.controls.append(self.edit_stops)
 
         self.error = Gtk.Label(xalign=0, wrap=True, max_width_chars=30, css_classes=["error"], visible=False)
-        self.append(self.error)
+        self.controls.append(self.error)
+        self.dropdown.connect("notify::selected", lambda *_: self._changed())
 
+    def apply_state(self, device):
+        """Show what the service says (also after a change made elsewhere, for example the tray)."""
+        self.loading = True
+        self.device = device
+        effect = device.get("effect")
+        saved = effect or {}
         key = "release"
         if saved.get("type") == "hardware":
             key = f"hw:{saved['mode']}"
@@ -406,9 +610,28 @@ class DeviceCard(Gtk.Box):
             key = saved["type"]
         keys = [k for k, _l in self.choices]
         self.dropdown.set_selected(keys.index(key) if key in keys else 0)
-        self.dropdown.connect("notify::selected", lambda *_: self._changed())
-        self._layout()
+        if saved.get("type") == "temperature":
+            self.stops = saved.get("stops")
+            try:
+                self.source.set_selected(self.sources.index(saved.get("sensor", "")))
+            except ValueError:
+                pass
+        for i, c in enumerate((saved.get("colors") or ([saved["color"]] if saved.get("color") else []))[:3]):
+            self.colors[i].set_rgba(_rgba(c))
+        if "brightness" in saved:
+            self.brightness.set_value(saved["brightness"])
+        if "speed" in saved:
+            self.speed.set_value(saved["speed"])
+        self.power.set_active(bool(device.get("on")))
+        self.bar.set_effect(effect)
+        zones = len(device["zones"])
+        self.subtitle.set_label(f"{device['plugin_name']} · {device['leds']} LEDs"
+                                + (f" · {zones} zones" if zones > 1 else ""))
+        labels = dict(self.choices)
+        self.summary.set_label(labels.get(key, "Not controlled") if effect else "Not controlled")
         self.set_error(device.get("error"))
+        self._layout()
+        self.loading = False
 
     def set_error(self, text):
         self.error.set_visible(bool(text))
@@ -427,7 +650,8 @@ class DeviceCard(Gtk.Box):
         self.brightness_box.set_visible(kind in ("static", "breathing", "rainbow", "temperature")
                                         or bool(mode and mode["brightness"]))
         self.speed_box.set_visible(kind in ("breathing", "rainbow") or bool(mode and mode["speed"]))
-        self.sensor_box.set_visible(kind == "temperature")
+        self.source_box.set_visible(kind == "temperature")
+        self.edit_stops.set_visible(kind == "temperature")
 
     def effect(self):
         kind = self._kind()
@@ -443,13 +667,41 @@ class DeviceCard(Gtk.Box):
         if kind == "rainbow":
             return {"type": "rainbow", "speed": s, "brightness": b}
         if kind == "temperature":
-            return {"type": "temperature", "sensor": self.sensor_ids[self.sensor.get_selected()], "brightness": b}
+            effect = {"type": "temperature", "sensor": self.sources[self.source.get_selected()], "brightness": b}
+            if self.stops:
+                effect["stops"] = self.stops
+            return effect
         mode = self.modes[kind[3:]]
         return {"type": "hardware", "mode": mode["name"], "speed": s, "brightness": b,
                 "colors": [_rgb(self.colors[i].get_rgba()) for i in range(min(3, mode["colors"]))]}
 
+    # --- user actions -----------------------------------------------------------------
+    def _power(self, on):
+        if self.loading:
+            return
+        run_async(lambda: self.win.client.call("light_power", device=self.device["key"], on=on),
+                  lambda _d: self.win.light_refresh(), lambda e: (self.win.toast(str(e)), self.win.light_refresh()))
+
+    def _source_changed(self):
+        if self.loading:
+            return
+        self.stops = None            # a new source has its own scale (°C or %), so start from its default gradient
+        self._changed()
+
+    def _open_stops(self):
+        is_fan = self.sources[self.source.get_selected()].startswith("fan:")
+        current = self.stops or (effects_default_stops(is_fan))
+        StopsDialog(self.win, current, is_fan, self._stops_done).present()
+
+    def _stops_done(self, stops):
+        self.stops = stops
+        self._changed()
+
     def _changed(self):
+        if self.loading:
+            return
         self._layout()
+        self.bar.set_effect(self.effect())
         if self.pending:
             GLib.source_remove(self.pending)
         self.pending = GLib.timeout_add(250, self._send)
@@ -458,22 +710,67 @@ class DeviceCard(Gtk.Box):
         self.pending = None
         effect = self.effect()
         run_async(lambda: self.win.client.call("light_set", device=self.device["key"], effect=effect),
-                  lambda _d: self.set_error(""), lambda e: self.set_error(str(e)))
+                  lambda _d: (self.set_error(""), self.win.light_refresh()), lambda e: self.set_error(str(e)))
         return False
 
 
+def effects_default_stops(is_fan):
+    from ..lighting import effects
+    return effects.FAN_STOPS if is_fan else effects.DEFAULT_STOPS
+
+
+class StatTile(Gtk.Box):
+    """A small tile of the overview: icon, big number and what it counts."""
+
+    def __init__(self, icon, label):
+        super().__init__(spacing=10, css_classes=["card", "fc-card"], margin_top=2, margin_bottom=2)
+        self.append(ui.icon_bubble(icon))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
+        self.value = Gtk.Label(xalign=0, css_classes=["fc-card-title"])
+        box.append(self.value)
+        box.append(ui.caption(label))
+        self.append(box)
+        self.set_margin_end(0)
+
+    def set(self, text):
+        self.value.set_label(str(text))
+
+
 class LightSection(Gtk.Box):
-    """The Light section of the overview."""
+    """The Light section of the overview: a summary and one tile per LED device."""
 
     def __init__(self, win):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         self.win = win
         self.signature = None
         self.cards = {}
         self.timer = None
+        win.light_refresh = self.refresh
         self.connect("map", self._on_map)
         self.connect("unmap", self._on_unmap)
-        self._show_empty(None)
+
+        self.overview = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, css_classes=["card", "fc-card"])
+        top = Gtk.Box(spacing=12)
+        titles = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+        titles.append(Gtk.Label(label="Overview", xalign=0, css_classes=["fc-card-title"]))
+        titles.append(ui.caption("Your lighting at a glance"))
+        top.append(titles)
+        all_on = Gtk.Button(label="All on", valign=Gtk.Align.CENTER)
+        all_off = Gtk.Button(label="All off", valign=Gtk.Align.CENTER)
+        all_on.connect("clicked", lambda *_: self._all(True))
+        all_off.connect("clicked", lambda *_: self._all(False))
+        top.append(all_on)
+        top.append(all_off)
+        self.overview.append(top)
+        stats = Gtk.Box(spacing=12, homogeneous=True)
+        self.stat_devices = StatTile("fc-light-symbolic", "Online")
+        self.stat_zones = StatTile("weather-clear-symbolic", "Zones active")
+        self.stat_profile = StatTile("fc-profile-symbolic", "Profile")
+        for t in (self.stat_devices, self.stat_zones, self.stat_profile):
+            stats.append(t)
+        self.overview.append(stats)
+        self.holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.append(self.holder)
 
     def _on_map(self, *_):
         self.refresh()
@@ -485,6 +782,10 @@ class LightSection(Gtk.Box):
             GLib.source_remove(self.timer)
             self.timer = None
 
+    def _all(self, on):
+        run_async(lambda: self.win.client.call("light_power_all", on=on), lambda _r: self.refresh(),
+                  lambda e: self.win.toast(str(e)))
+
     def refresh(self):
         if not self.win.connected:
             return
@@ -493,36 +794,46 @@ class LightSection(Gtk.Box):
             return self.win.client.call("light_devices"), self.win.client.call("plugin_list")
         run_async(fetch, self._show, lambda e: None)
 
+    def _clear(self):
+        child = self.holder.get_first_child()
+        while child:
+            self.holder.remove(child)
+            child = self.holder.get_first_child()
+        self.cards = {}
+
     def _show(self, result):
         devices, plugins = result
+        tray = getattr(self.win, "tray", None)
+        if tray:
+            tray.set_lights(bool(devices))
+        active = sum(len(d["zones"]) for d in devices if d.get("on"))
+        self.stat_devices.set(f"{len(devices)} devices")
+        self.stat_zones.set(f"{active} zones")
+        self.stat_profile.set((self.win.config or {}).get("profile") or "–")
         signature = (tuple((d["key"], d["name"], d["leds"], len(d["modes"]), d["direct"]) for d in devices),
                      any(p.get("enabled") for p in plugins))
         if signature == self.signature:
-            for d in devices:                      # only refresh error texts, never the controls being edited
+            for d in devices:                      # apply changes made elsewhere, but never while the user is editing
                 card = self.cards.get(d["key"])
-                if card:
-                    card.set_error(d.get("error"))
+                if card and not card.pending:
+                    card.apply_state(d)
             return
         self.signature = signature
-        child = self.get_first_child()
-        while child:
-            self.remove(child)
-            child = self.get_first_child()
-        self.cards = {}
+        self._clear()
         if not devices:
-            self._show_empty(plugins)
+            if plugins and any(p.get("enabled") for p in plugins):
+                title, text = "No LED devices found", ("The enabled plugins did not find any devices. Check their "
+                                                       "settings under <b>Settings → LED devices</b>.")
+            else:
+                title, text = "No lighting plugin is switched on", LIGHT_TEXT
+            self.holder.append(ui.notice(title, "fc-light-symbolic", text,
+                                         ("Set up LED devices", lambda: self.win.navigate("leds"))))
             return
+        self.holder.append(self.overview)
+        self.holder.append(Gtk.Label(label="Devices", xalign=0, css_classes=["fc-page-title"], margin_top=8))
         flow = ui.CardFlow()
         for d in devices:
             card = DeviceCard(self.win, d)
             self.cards[d["key"]] = card
             flow.append(card)
-        self.append(flow)
-
-    def _show_empty(self, plugins):
-        if plugins and any(p.get("enabled") for p in plugins):
-            title, text = "No LED devices found", ("The enabled plugins did not find any devices. Check their settings "
-                                                   "under <b>Settings → LED devices</b>.")
-        else:
-            title, text = "No lighting plugin is switched on", LIGHT_TEXT
-        self.append(ui.notice(title, "fc-light-symbolic", text, ("Set up LED devices", lambda: self.win.navigate("leds"))))
+        self.holder.append(flow)

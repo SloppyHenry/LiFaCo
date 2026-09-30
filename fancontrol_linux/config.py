@@ -8,6 +8,7 @@ import tempfile
 import uuid
 
 from .curves import CURVE_TYPES, MIX_FUNCTIONS, TEMP_CURVES
+from .lighting import effects as light_effects
 from .sensors import CUSTOM_TYPES, file_path_allowed
 
 CONFIG_VERSION = 2
@@ -78,7 +79,7 @@ def new_id():
 
 def empty_config():
     return {"version": CONFIG_VERSION, "profile": "Default", "settings": dict(DEFAULT_SETTINGS),
-            "curves": [], "controls": [], "custom_sensors": [], "sensor_names": {}, "hidden": []}
+            "curves": [], "controls": [], "custom_sensors": [], "sensor_names": {}, "hidden": [], "lighting": None}
 
 
 def new_curve(kind, name, sensors=None):
@@ -166,6 +167,19 @@ def _custom_sensor(raw, ids):
     return out
 
 
+def _lighting(raw):
+    """Effects per LED device stored in a profile (None = the profile says nothing about lighting)."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("devices"), dict):
+        return None
+    devices = {}
+    for key, effect in raw["devices"].items():
+        try:
+            devices[str(key)] = light_effects.normalize(effect)
+        except light_effects.EffectError:
+            continue
+    return {"devices": devices}
+
+
 def normalize(cfg):
     """Validate a config coming from disk or a client and fill in defaults. Raises ConfigError."""
     if not isinstance(cfg, dict):
@@ -177,6 +191,7 @@ def normalize(cfg):
     out["settings"]["safety_temp"] = _num(settings.get("safety_temp", 95.0), 0, 150, "safety_temp")
     out["settings"]["liquidctl"] = bool(settings.get("liquidctl", True))
     out["settings"]["thermaltake"] = bool(settings.get("thermaltake", False))
+    out["lighting"] = _lighting(cfg.get("lighting"))
     names = cfg.get("sensor_names") or {}
     out["sensor_names"] = {str(k): str(v) for k, v in names.items() if str(v).strip()}
     out["hidden"] = sorted({str(h) for h in cfg.get("hidden") or []})

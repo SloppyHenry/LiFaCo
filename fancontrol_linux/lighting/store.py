@@ -29,7 +29,7 @@ def state_path():
 
 
 def empty_state():
-    return {"version": 1, "catalog_url": "", "plugins": {}, "devices": {}}
+    return {"version": 1, "catalog_url": "", "plugins": {}, "devices": {}, "previous": {}, "off_on_exit": False}
 
 
 def load_state():
@@ -53,6 +53,10 @@ def load_state():
         for key, effect in (raw.get("devices") or {}).items():
             if isinstance(effect, dict):
                 state["devices"][str(key)] = effect
+        for key, effect in (raw.get("previous") or {}).items():
+            if isinstance(effect, dict):
+                state["previous"][str(key)] = effect
+        state["off_on_exit"] = bool(raw.get("off_on_exit"))
     return state
 
 

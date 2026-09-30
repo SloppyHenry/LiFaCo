@@ -82,8 +82,10 @@ class _Item:
 
 
 class Tray:
-    def __init__(self, on_activate, on_quit, on_profile):
+    def __init__(self, on_activate, on_quit, on_profile, on_lights=None):
         self.on_activate, self.on_quit, self.on_profile = on_activate, on_quit, on_profile
+        self.on_lights = on_lights
+        self.lights = False
         self.bus = None
         self.items: dict[str, _Item] = {}
         self.profiles, self.active_profile = [], None
@@ -177,7 +179,10 @@ class Tray:
     # --- menu -----------------------------------------------------------
     def _menu_items(self):
         items = {
-            0: ({"children-display": GLib.Variant("s", "submenu")}, [1, 2, 3, 4, 5]),
+            0: ({"children-display": GLib.Variant("s", "submenu")},
+                [1] + ([6, 7] if self.lights and self.on_lights else []) + [2, 3, 4, 5]),
+            6: ({"label": GLib.Variant("s", "Lights on")}, []),
+            7: ({"label": GLib.Variant("s", "Lights off")}, []),
             1: ({"label": GLib.Variant("s", "Open LiFaCo")}, []),
             2: ({"type": GLib.Variant("s", "separator")}, []),
             3: ({"label": GLib.Variant("s", "Profile"), "children-display": GLib.Variant("s", "submenu"),
@@ -234,8 +239,19 @@ class Tray:
             self.on_activate()
         elif item_id == 5:
             self.on_quit()
+        elif item_id in (6, 7) and self.on_lights:
+            self.on_lights(item_id == 6)
         elif item_id >= 100 and item_id - 100 < len(self.profiles):
             self.on_profile(self.profiles[item_id - 100])
+
+    def set_lights(self, available):
+        """Show the 'Lights on / off' entries only when there are LED devices."""
+        if available != self.lights:
+            self.lights = available
+            self.revision += 1
+            if self.bus:
+                self.bus.emit_signal(None, MENU_PATH, MENU_IFACE, "LayoutUpdated",
+                                     GLib.Variant("(ui)", (self.revision, 0)))
 
     def set_profiles(self, profiles, active):
         if (profiles, active) != (self.profiles, self.active_profile):

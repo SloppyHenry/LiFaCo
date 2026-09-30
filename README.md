@@ -118,8 +118,10 @@ them in *Settings → LED devices* (search field, one click) – or write your o
 
 AIO coolers, fan hubs and LED controllers found through liquidctl need no plugin: their colour channels appear as devices automatically (built in, experimental, only volatile colours). Planned: OpenRazer and a careful MSI Mystic Light plugin.
 
-LiFaCo draws the effects itself (static, breathing, rainbow, **colour that follows a temperature**) and streams them
-to the devices; devices that have their own effects can run those instead.
+LiFaCo draws the effects itself (static, breathing, rainbow, **colour that follows a temperature or a fan's speed**,
+with an editable colour gradient) and streams them to the devices; devices that have their own effects can run those
+instead. The Light section shows an overview and one tile per device with an on/off switch; lighting is saved
+**per profile**, can be switched off when LiFaCo stops, is restored after suspend, and "Lights on/off" is in the tray menu.
 
 **Safety:** plugins run in their own process **without administrator rights** and can only do what you approve when
 you switch them on (network, specific USB devices, SMBus). LiFaCo never sends "save to device" commands, so colours

@@ -13,7 +13,6 @@ from gi.repository import Adw, Gio, GLib, GObject, Gtk  # noqa: E402
 from .. import APP_ID  # noqa: E402
 from .. import config as cfgmod  # noqa: E402
 from ..ipc import Client, DaemonUnavailable  # noqa: E402
-from . import common as ui  # noqa: E402
 from .controls import CONTROLS_HELP, ControlsPage  # noqa: E402
 from .curves import CURVES_HELP, CurvesPage  # noqa: E402
 from .layout import MAIN_SECTIONS, MainView, NavPanel, SettingsView  # noqa: E402
@@ -22,7 +21,7 @@ from .misc_pages import AboutPage, DesignPage, SettingsPage, SupportPage, TrayPa
 from .sensors_page import SensorsPage  # noqa: E402
 from .theme import Theme  # noqa: E402
 from .tray import Tray  # noqa: E402
-from .util import GuiPrefs, fmt_pct, fmt_rpm, fmt_temp, run_async, set_fahrenheit, c_to_disp  # noqa: E402
+from .util import GuiPrefs, c_to_disp, fmt_pct, fmt_rpm, fmt_temp, run_async, set_fahrenheit  # noqa: E402
 
 SERVICE = "fancontrol-linux.service"
 CPU_PATTERNS = ["tctl", "package id", "tdie", "cpu"]
@@ -87,6 +86,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.theme = Theme()
         self.tray = None
         self.held = False
+        self.light_refresh = lambda: None       # replaced by the Light section
 
         self.controls_page = ControlsPage(self)
         self.curves_page = CurvesPage(self)
@@ -458,6 +458,10 @@ class MainWindow(Adw.ApplicationWindow):
         if self.tray:
             self.tray.set_main_tooltip(self.get_title(), "Service unreachable")
 
+    def _lights_all(self, on):
+        run_async(lambda: self.client.call("light_power_all", on=on), lambda _r: self.light_refresh(),
+                  lambda e: self.toast(str(e)))
+
     def toast(self, message):
         self.toasts.add_toast(Adw.Toast(title=GLib.markup_escape_text(str(message)), timeout=5))
 
@@ -484,7 +488,8 @@ class MainWindow(Adw.ApplicationWindow):
 
     # --- tray -----------------------------------------------------------
     def _start_tray(self):
-        self.tray = Tray(on_activate=self.present_window, on_quit=self.quit_app, on_profile=self._load_profile)
+        self.tray = Tray(on_activate=self.present_window, on_quit=self.quit_app, on_profile=self._load_profile,
+                         on_lights=self._lights_all)
         if not self.tray.start():
             self.tray = None
             return
