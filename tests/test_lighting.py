@@ -724,3 +724,73 @@ class ProfileLightingTests(unittest.TestCase):
             d.lighting.state["devices"]["x:y"] = {"type": "off"}
             d.handle({"cmd": "load_profile", "name": "Gaming"})
             self.assertEqual(d.lighting.state["devices"]["x:y"]["color"], [7, 7, 7])
+
+
+class HelperTests(unittest.TestCase):
+    def setUp(self):
+        from fancontrol_linux.lighting import helpers
+        self.h = helpers
+        self.helper = helpers.OpenRgbHelper()
+        self._which, self._pm = helpers.shutil.which, helpers.package_manager
+
+    def tearDown(self):
+        self.h.shutil.which = self._which
+        self.h.package_manager = self._pm
+
+    def wait_done(self):
+        end = time.monotonic() + 5
+        while self.helper.installing and time.monotonic() < end:
+            time.sleep(0.02)
+
+    def test_manifest_lists_helpers_and_unknown_ones_are_ignored(self):
+        m = mf.load_manifest(TOML + '\n[requires]\nhelpers = ["openrgb", "made-up"]\n')
+        self.assertEqual(m["requires"]["helpers"], ["openrgb", "made-up"])
+        mgr = LightingManager()
+        self.assertRaises(LightingError, mgr.helper_install, "made-up")
+
+    def test_status_hints(self):
+        self.h.shutil.which = lambda name: None
+        self.h.package_manager = lambda: ("apt-get", ["apt-get"])
+        st = self.helper.status()
+        self.assertFalse(st["installed"])
+        self.assertTrue(st["can_install"])
+        self.assertIn("not installed", st["hint"])
+        self.h.package_manager = lambda: (None, None)
+        self.assertFalse(self.helper.status()["can_install"])
+        self.assertIn("openrgb.org", self.helper.status()["hint"])
+        self.h.shutil.which = lambda name: "/usr/bin/openrgb" if name == "openrgb" else None
+        self.assertIn("sudo openrgb --server", self.helper.status()["hint"])
+
+    def test_install_runs_only_the_package_command(self):
+        ran = []
+        self.h.shutil.which = lambda name: None
+        self.h.package_manager = lambda: ("fake", ["sh", "-c", "echo ok"])
+        real = self.h.subprocess.run
+
+        def fake_run(cmd, **kw):
+            ran.append(cmd)
+            return real(cmd, **kw)
+        self.h.subprocess.run = fake_run
+        try:
+            self.helper.start_install()
+            self.wait_done()
+        finally:
+            self.h.subprocess.run = real
+        self.assertEqual(self.helper.error, "")
+        self.assertEqual(len(ran), 1)                        # no service, no other commands
+        self.assertNotIn("systemctl", " ".join(ran[0]))
+
+    def test_package_not_in_repositories_gives_a_clear_message(self):
+        self.h.shutil.which = lambda name: None
+        self.h.package_manager = lambda: ("fake", ["sh", "-c", "echo 'E: Unable to locate package openrgb' >&2; exit 100"])
+        self.helper.start_install()
+        self.wait_done()
+        self.assertIn("not in your distribution's repositories", self.helper.error)
+        self.assertIn("openrgb.org", self.helper.error)
+
+    def test_nothing_is_installed_when_it_is_already_there(self):
+        self.h.shutil.which = lambda name: "/usr/bin/openrgb"
+        self.h.package_manager = lambda: ("fake", ["false"])
+        self.helper.start_install()
+        self.assertFalse(self.helper.installing)
+        self.assertEqual(self.helper.error, "")

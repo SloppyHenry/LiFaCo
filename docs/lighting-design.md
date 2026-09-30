@@ -62,6 +62,12 @@ an experimental Aura USB driver (*reported*: Z490/Z590/Z690). Nothing fundamenta
 7. **Lighting is isolated from fan control:** own lock, own threads; a hanging plugin cannot delay a fan update.
 8. **Never "save to device".** The plugin API has no such call; colours and effects stay volatile.
 
+Plugins can name **helpers** (`[requires] helpers = ["openrgb"]`): built-in, fixed actions of LiFaCo for what a
+plugin depends on. The only helper so far installs the distribution package of OpenRGB (apt/dnf/pacman/zypper/xbps/apk,
+through `systemd-run` because the service itself runs in a read-only sandbox). Plugins cannot make the service run
+commands, and the helper creates no service and changes no boot setting. Checked in containers: Ubuntu 26.04
+(installs OpenRGB 0.9), Debian 13 (package missing, clear message with download link).
+
 ## 4. Architecture
 
 ```

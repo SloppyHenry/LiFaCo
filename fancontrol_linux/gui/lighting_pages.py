@@ -109,7 +109,9 @@ class LedPage(Adw.Bin):
             self.timer = None
 
     def _tick(self):
-        if any(p.get("status") == "starting" for p in self.plugins):
+        busy = any(p.get("status") == "starting" or any(h["installing"] for h in p.get("helpers", []))
+                   for p in self.plugins)
+        if busy or any(p.get("helpers") for p in self.plugins):     # also notice a server that was started meanwhile
             self.refresh()
         return True
 
@@ -128,7 +130,8 @@ class LedPage(Adw.Bin):
 
     # --- installed plugins ------------------------------------------------------------
     def _signature(self, plugins):
-        return [(p["id"], p.get("status"), p.get("enabled"), p.get("version"), p.get("devices")) for p in plugins]
+        return [(p["id"], p.get("status"), p.get("enabled"), p.get("version"), p.get("devices"),
+                 str(p.get("helpers"))) for p in plugins]
 
     def _show_plugins(self, plugins):
         if self._signature(plugins) == self._signature(self.plugins) and self.plugin_rows:
@@ -173,6 +176,8 @@ class LedPage(Adw.Bin):
         if p["status"] == "error" and p["error"]:
             row.add_row(Adw.ActionRow(title="Problem", subtitle=GLib.markup_escape_text(p["error"]), subtitle_lines=0,
                                       css_classes=["error"]))
+        for h in p.get("helpers", []):
+            row.add_row(self._helper_row(p, h))
         if p["missing_commands"]:
             row.add_row(Adw.ActionRow(title="Missing program", css_classes=["warning"], subtitle_lines=0,
                                       subtitle="Needs: " + ", ".join(p["missing_commands"])))
@@ -200,6 +205,42 @@ class LedPage(Adw.Bin):
         actions.add_suffix(remove)
         row.add_row(actions)
         return row
+
+    def _helper_row(self, p, h):
+        """What the plugin needs (for example the OpenRGB program): status, and a button to install it."""
+        if h["installing"]:
+            row = Adw.ActionRow(title=f"Installing {h['name']} …", subtitle="This can take a minute")
+            row.add_suffix(Gtk.Spinner(spinning=True, valign=Gtk.Align.CENTER))
+            return row
+        if h["server_running"]:
+            return Adw.ActionRow(title=f"{h['name']} is running", subtitle="The plugin can connect to it")
+        row = Adw.ActionRow(title=f"{h['name']} " + ("server is not running" if h["installed"] else "is not installed"),
+                            subtitle=GLib.markup_escape_text(h["error"] or h["hint"]), subtitle_lines=0,
+                            css_classes=["error"] if h["error"] else [])
+        if not h["installed"] and h["can_install"]:
+            button = Gtk.Button(label=f"Install {h['name']} …", valign=Gtk.Align.CENTER,
+                                css_classes=["suggested-action"])
+            button.connect("clicked", lambda *_: self._ask_install_helper(p, h))
+            row.add_suffix(button)
+        return row
+
+    def _ask_install_helper(self, p, h):
+        dialog = Adw.AlertDialog(
+            heading=f"Install {h['name']}?",
+            body=f"{p['name']} needs {h['name']}. LiFaCo installs the {h['name']} package of your distribution "
+                 "with administrator rights. It does not start a service or change anything else; you start the "
+                 "server yourself when you want to use it.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("install", "Install")
+        dialog.set_response_appearance("install", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("cancel")
+
+        def answered(_d, response):
+            if response == "install":
+                run_async(lambda: self.win.client.call("helper_install", id=h["id"]),
+                          lambda _s: self.refresh(), self._fail)
+        dialog.connect("response", answered)
+        dialog.present(self.win)
 
     def _removed(self, plugins):
         self.refresh(plugins)
@@ -301,6 +342,9 @@ class LedPage(Adw.Bin):
         button.set_label("Installing …")
 
         def done(plugins):
+            for pl in plugins:
+                if pl["id"] == pid and any(not h["server_running"] for h in pl.get("helpers", [])):
+                    self.open_rows.add(pid)         # show what the plugin still needs
             self.win.toast(f"{name} installed – switch it on under Plugins")
             self.plugins = []
             self.refresh(plugins)

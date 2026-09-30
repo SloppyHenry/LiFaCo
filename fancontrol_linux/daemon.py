@@ -144,6 +144,9 @@ class Daemon:
         self.lighting.restart(str(req.get("id", "")))
         return self.lighting.list_plugins()
 
+    def cmd_helper_install(self, req):
+        return self.lighting.helper_install(str(req.get("id", "")))
+
     def cmd_light_devices(self, _):
         return self.lighting.list_devices()
 

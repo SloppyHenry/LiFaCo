@@ -216,11 +216,15 @@ def load_manifest(text):
     if not isinstance(commands, list) or not all(isinstance(c, str) for c in commands):
         raise ManifestError("requires.commands must be a list of program names")
 
+    helpers = requires.get("helpers", []) if isinstance(requires, dict) else []
+    if not isinstance(helpers, list) or not all(isinstance(h, str) for h in helpers):
+        raise ManifestError("requires.helpers must be a list of names")
+
     return {"id": pid, "name": name, "version": version, "api": api, "entry": entry,
             "description": _text(data, "description", limit=600), "author": _text(data, "author", limit=80),
             "license": _text(data, "license", limit=40), "homepage": _text(data, "homepage", limit=200),
             "tags": [t.strip().lower()[:30] for t in tags if t.strip()][:12],
-            "permissions": permissions, "settings": settings, "requires": {"commands": commands}}
+            "permissions": permissions, "settings": settings, "requires": {"commands": commands, "helpers": helpers}}
 
 
 def load_manifest_file(path):

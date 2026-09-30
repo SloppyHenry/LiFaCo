@@ -13,6 +13,7 @@ import time
 from . import effects, store, udev
 from . import manifest as mf
 from .catalog import Catalog, CatalogError, catalog_url, search
+from .helpers import HELPERS
 from .process import PluginError, PluginProcess
 
 log = logging.getLogger("fancontrol-linuxd")
@@ -356,7 +357,8 @@ class LightingManager:
                             "settings": self.plugin_settings(pid), "enabled": entry["enabled"],
                             "status": status, "error": rt.error if rt and rt.state == "error" else "",
                             "source": entry["source"], "devices": len(rt.devices) if rt else 0,
-                            "missing_commands": [c for c in m["requires"]["commands"] if not _which(c)]})
+                            "missing_commands": [c for c in m["requires"]["commands"] if not _which(c)],
+                            "helpers": [HELPERS[h].status() for h in m["requires"]["helpers"] if h in HELPERS]})
             for name, err in sorted(self.broken.items()):
                 out.append({"id": name, "name": name, "broken": True, "error": err, "status": "error"})
             return out
@@ -449,6 +451,12 @@ class LightingManager:
             self._save()
         self.refresh()
         self._sync_udev()
+
+    def helper_install(self, hid):
+        helper = HELPERS.get(hid)
+        if not helper:
+            raise LightingError(f"Unknown helper '{hid}'")
+        return helper.start_install()
 
     def catalog_search(self, query="", refresh=False):
         url = catalog_url(self.state)
