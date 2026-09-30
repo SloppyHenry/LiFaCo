@@ -226,10 +226,23 @@ class LedPage(Adw.Bin):
             row.add_suffix(button)
         return row
 
+    def _check_helpers(self, plugins, pid):
+        """After installing a plugin: if it needs software that is missing, ask right away whether to install it."""
+        for pl in plugins:
+            if pl["id"] != pid:
+                continue
+            missing = [h for h in pl.get("helpers", []) if not h["installed"] and h["can_install"]]
+            if any(not h["server_running"] for h in pl.get("helpers", [])):
+                self.open_rows.add(pid)             # show what the plugin still needs
+                self.plugins = []
+                self.refresh()
+            if missing:
+                self._ask_install_helper(pl, missing[0])
+
     def _ask_install_helper(self, p, h):
         dialog = Adw.AlertDialog(
             heading=f"Install {h['name']}?",
-            body=f"{p['name']} needs {h['name']}. LiFaCo installs it with administrator rights: from your "
+            body=f"The {p['name']} plugin needs the {h['name']} program. LiFaCo installs it with administrator rights: from your "
                  "distribution's package repository, or, if it is not packaged there, the official release from "
                  "the OpenRGB project (codeberg.org/OpenRGB). It does not start a service or change anything else; "
                  "you start the server yourself when you want to use it.")
@@ -345,13 +358,11 @@ class LedPage(Adw.Bin):
         button.set_label("Installing …")
 
         def done(plugins):
-            for pl in plugins:
-                if pl["id"] == pid and any(not h["server_running"] for h in pl.get("helpers", [])):
-                    self.open_rows.add(pid)         # show what the plugin still needs
             self.win.toast(f"{name} installed – switch it on under Plugins")
             self.plugins = []
             self.refresh(plugins)
             self._search(self.query)
+            self._check_helpers(plugins, pid)
         run_async(lambda: self.slow.call("plugin_install", id=pid), done, lambda e: (self._fail(e), self._search(self.query)))
 
     # --- upload -----------------------------------------------------------------------
@@ -380,7 +391,16 @@ class LedPage(Adw.Bin):
             "before it is switched on.", "Install",
             lambda: run_async(lambda: self.slow.call("plugin_install_file", data=payload),
                               lambda plugins: (self.win.toast("Plugin installed – switch it on under Plugins"),
-                                               self.refresh(plugins)), self._fail))
+                                               self.refresh(plugins), self._check_helpers(plugins, _plugin_id(plugins))),
+                              self._fail))
+
+
+def _plugin_id(plugins):
+    """Which plugin was just installed from a file: the one that is new or needs setup (best effort)."""
+    for p in plugins:
+        if p.get("helpers") and any(not h["installed"] for h in p["helpers"]):
+            return p["id"]
+    return ""
 
 
 def _rgba(color):
