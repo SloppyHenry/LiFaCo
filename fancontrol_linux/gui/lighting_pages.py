@@ -120,12 +120,17 @@ class LedPage(Adw.Bin):
             self.installed_group.add(row)
             self.plugin_rows.append(row)
         for p in plugins:
-            row = self._broken_row(p) if p.get("broken") else self._plugin_row(p)
+            row = (self._broken_row(p) if p.get("broken") else self._builtin_row(p) if p.get("builtin")
+                   else self._plugin_row(p))
             self.installed_group.add(row)
             self.plugin_rows.append(row)
 
     def _broken_row(self, p):
         return Adw.ActionRow(title=p["name"], subtitle=f"Cannot be loaded: {p['error']}", css_classes=["error"])
+
+    def _builtin_row(self, p):
+        return Adw.ActionRow(title=p["name"], subtitle=GLib.markup_escape_text(
+            f"Built in · {p['devices']} devices · " + p["description"]), subtitle_lines=0)
 
     def _plugin_row(self, p):
         status = STATUS_TEXT.get(p["status"], p["status"])

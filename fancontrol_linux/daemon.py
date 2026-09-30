@@ -15,6 +15,7 @@ from . import config as cfgmod
 from .engine import Engine
 from .hwmon import Hardware
 from .ipc import read_line, socket_path
+from .lighting.liquidctl_lighting import LiquidctlLighting
 from .lighting.manager import LightingManager
 
 log = logging.getLogger("fancontrol-linuxd")
@@ -33,6 +34,7 @@ class Daemon:
         self.hw = hardware or Hardware(settings=cfg["settings"])
         self.engine = Engine(self.hw, cfg)
         self.lighting = LightingManager(temps=self._temp_values)
+        self.lighting.set_builtin(LiquidctlLighting(lambda: self.hw.liquidctl.devices), "liquidctl (built in)")
         self.lighting.refresh()
 
     def _temp_values(self):
@@ -99,6 +101,7 @@ class Daemon:
 
     def cmd_rescan(self, _):
         self.engine.rescan()
+        self.lighting.rescan()
         return self.engine.tick()
 
     # --- lighting ---------------------------------------------------------

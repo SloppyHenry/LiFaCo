@@ -7,6 +7,7 @@ already handled by hwmon; liquidctl covers the rest. Only used when the liquidct
 import inspect
 import logging
 import re
+import threading
 import time
 
 log = logging.getLogger("fancontrol-linuxd")
@@ -47,6 +48,8 @@ class _Device:
     def __init__(self, dev, key):
         self.dev = dev
         self.key = key
+        # One thread at a time talks to the USB device: fan control and lighting (built-in provider) share it.
+        self.lock = threading.RLock()
         self.name = dev.description
         self.status = []
         self.read_at = 0.0
@@ -55,7 +58,8 @@ class _Device:
         now = time.monotonic()
         if now - self.read_at >= CACHE_SECONDS:
             try:
-                self.status = self.dev.get_status()
+                with self.lock:
+                    self.status = self.dev.get_status()
             except Exception as e:  # USB errors must not stop the control loop
                 log.warning("liquidctl %s: %s", self.name, e)
                 self.status = []
@@ -118,7 +122,8 @@ class LiquidOutput:
         if duty == self._last and now - self._sent_at < RESEND_SECONDS:
             return
         try:
-            self.device.dev.set_fixed_speed(self.channel, duty)
+            with self.device.lock:
+                self.device.dev.set_fixed_speed(self.channel, duty)
         except Exception as e:
             raise OSError(f"liquidctl: {e}") from e
         self._last, self._sent_at = duty, now
@@ -126,13 +131,14 @@ class LiquidOutput:
     def restore(self):
         if not self._taken:
             return
-        try:
-            self.device.dev.set_speed_profile(self.channel, FALLBACK_PROFILE)
-        except Exception:
+        with self.device.lock:
             try:
-                self.device.dev.set_fixed_speed(self.channel, 100)
+                self.device.dev.set_speed_profile(self.channel, FALLBACK_PROFILE)
             except Exception:
-                pass
+                try:
+                    self.device.dev.set_fixed_speed(self.channel, 100)
+                except Exception:
+                    pass
         self._taken = False
 
 
@@ -156,7 +162,8 @@ class LiquidPumpModeOutput(LiquidOutput):
         if mode == self._mode:
             return
         try:
-            self.device.dev.initialize(pump_mode=mode)
+            with self.device.lock:
+                self.device.dev.initialize(pump_mode=mode)
         except Exception as e:
             raise OSError(f"liquidctl: {e}") from e
         self._mode = mode
@@ -166,7 +173,8 @@ class LiquidPumpModeOutput(LiquidOutput):
         if not self._taken:
             return
         try:
-            self.device.dev.initialize(pump_mode="balanced")
+            with self.device.lock:
+                self.device.dev.initialize(pump_mode="balanced")
         except Exception:
             pass
         self._taken = False
@@ -181,7 +189,8 @@ class LiquidctlBackend:
     def close(self):
         for d in self.devices:
             try:
-                d.dev.disconnect()
+                with d.lock:
+                    d.dev.disconnect()
             except Exception:
                 pass
         self.devices = []

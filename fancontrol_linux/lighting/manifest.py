@@ -13,6 +13,7 @@ SETTING_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 SETTING_TYPES = ("text", "password", "number", "switch", "choice")
 DEVICE_TYPES = ("mainboard", "gpu", "ram", "keyboard", "mouse", "cooler", "fan", "strip", "headset", "case", "other")
 MAX_MANIFEST = 64 * 1024
+RESERVED_IDS = ("liquidctl",)     # built-in lighting providers
 
 
 class ManifestError(ValueError):
@@ -141,6 +142,8 @@ def load_manifest(text):
     if not isinstance(data, dict):
         raise ManifestError("plugin.toml must contain key = value lines")
     pid = _text(data, "id", limit=40)
+    if pid in RESERVED_IDS:
+        raise ManifestError(f"The id '{pid}' is reserved for a part of LiFaCo")
     if not ID_RE.match(pid):
         raise ManifestError("'id' must be 2-40 characters: lowercase letters, digits and '-', starting with a letter")
     version = _text(data, "version", limit=20)

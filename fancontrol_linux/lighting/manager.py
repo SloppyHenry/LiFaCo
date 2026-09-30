@@ -141,6 +141,54 @@ class PluginRuntime:
             self.state = "stopped"
 
 
+class BuiltinRuntime:
+    """Same interface as PluginRuntime for a provider that lives inside the service (see liquidctl_lighting)."""
+
+    def __init__(self, manager, provider, name):
+        self.manager, self.provider = manager, provider
+        self.pid = "liquidctl"
+        self.info = {"manifest": {"name": name}}
+        self.state, self.error = "running", ""
+        self.devices = []
+        self.stopping = False
+        self.attempts, self.next_try, self.running_since = 0, 0.0, 0.0
+        self.cond = threading.Condition()
+        self.pending = {}
+        self.rescan()
+        threading.Thread(target=self._sender, daemon=True, name="lighting-" + self.pid).start()
+
+    def rescan(self):
+        try:
+            self.devices = self.provider.devices()
+        except Exception:  # noqa: BLE001 – a broken driver must not break lighting for other devices
+            log.exception("Listing %s lighting devices failed", self.pid)
+            self.devices = []
+
+    def submit(self, device_id, kind, payload):
+        if kind != "colors":
+            return
+        with self.cond:
+            self.pending[device_id] = payload
+            self.cond.notify()
+
+    def _sender(self):
+        while not self.stopping:
+            with self.cond:
+                while not self.pending and not self.stopping:
+                    self.cond.wait(1.0)
+                work, self.pending = self.pending, {}
+            for device_id, colors in work.items():
+                try:
+                    self.provider.set_colors(device_id, colors)
+                except Exception as e:  # noqa: BLE001 – shown on the device card
+                    self.manager.note_device_error(self.pid, device_id, str(e))
+
+    def stop(self):
+        self.stopping = True
+        with self.cond:
+            self.cond.notify_all()
+
+
 class LightingManager:
     def __init__(self, temps=None):
         self.lock = threading.RLock()
@@ -151,13 +199,20 @@ class LightingManager:
         self.infos, self.broken = {}, {}
         self.applied = {}       # device key -> what was last sent to it: (kind, frame/effect json, time)
         self.errors = {}        # device key -> last error text
+        self.builtin = None      # (provider, display name) for lighting that lives inside the service
         self.stop_event = threading.Event()
         self.t0 = time.monotonic()
         self.thread = None
 
     # --- lifecycle -------------------------------------------------------------------
+    def set_builtin(self, provider, name):
+        self.builtin = (provider, name)
+
     def start(self):
         self.refresh()
+        if self.builtin:
+            rt = BuiltinRuntime(self, *self.builtin)
+            self.runtimes[rt.pid] = rt
         with self.lock:
             for pid, entry in self.state["plugins"].items():
                 if entry["enabled"] and pid in self.infos and self._approved(pid):
@@ -247,6 +302,16 @@ class LightingManager:
     def list_plugins(self):
         with self.lock:
             out = []
+            rt = self.runtimes.get("liquidctl")
+            if isinstance(rt, BuiltinRuntime) and rt.devices:
+                out.append({"id": rt.pid, "name": rt.info["manifest"]["name"], "builtin": True, "version": "",
+                            "description": "AIO coolers, fan hubs and LED controllers found through liquidctl. "
+                                           "Built into LiFaCo; follows the liquidctl switch in Settings → Hardware.",
+                            "author": "LiFaCo", "license": "MIT", "homepage": "", "tags": [],
+                            "permissions": {"network": False, "usb": [], "i2c": False},
+                            "permission_lines": [], "needs_approval": False, "settings_schema": [], "settings": {},
+                            "enabled": True, "status": "running", "error": "", "source": "builtin",
+                            "devices": len(rt.devices), "missing_commands": []})
             for pid, info in sorted(self.infos.items()):
                 m = info["manifest"]
                 entry = self._entry(pid)
@@ -492,6 +557,8 @@ class LightingManager:
                 frame = effects.render(effect, dev["leds"], now - self.t0, temps)
                 animated = animated or effects.is_animated(effect)
                 resend = min(KEEPALIVE, dev.get("frame_timeout", KEEPALIVE) / 2)
+                if last and now - last[2] < dev.get("min_interval", 0):
+                    continue           # slow devices (USB round trips) get colours at most this often
                 if last is None or last[1] != frame or now - last[2] >= resend:
                     rt.submit(dev["id"], "colors", frame)
                     self.applied[key] = ("colors", frame, now)

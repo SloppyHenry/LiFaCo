@@ -20,7 +20,7 @@ ckb-next, plus findings contributed by the project owner (marked *reported*; ver
 |---|---|---|---|
 | **OpenRGB** | TCP, port 6742, binary SDK protocol (v6 since 1.0, released 2026-09-12; stable 32-bit device IDs); 1.0 adds a systemd background service | over a thousand devices: ASUS Aura (USB and SMBus), Gigabyte RGB Fusion, ASRock Polychrome, Corsair, Razer, Logitech, SteelSeries, GPUs and RAM over SMBus/I²C | plugin `openrgb` (own minimal client, protocol 4, compatible with 0.9 and 1.0) |
 | **WLED** | HTTP JSON API (`/json/state`, `/json/eff` …), WebSocket, mDNS `_wled._tcp`; realtime over UDP (DRGB/DNRGB port 21324), DDP (4048), E1.31 (5568), Art-Net | LED strips/matrices on ESP32/ESP8266 | plugin `wled`: JSON for WLED's own effects, DRGB/DNRGB for LiFaCo's effects |
-| **liquidctl** | Python library (already a LiFaCo dependency) | NZXT Kraken/Smart Device/HUE 2, Corsair Hydro/Commander Pro/Core, ASUS Ryujin, MSI Coreliquid, Lian Li Uni SL, Gigabyte RGB Fusion 2, Aquacomputer Farbwerk. *Reported:* experimental ASUS Aura USB driver for Z490/Z590/Z690 boards | planned plugin `liquidctl` (AIO coolers, fan hubs, CPU cooler and fan lighting) |
+| **liquidctl** | Python library (already a LiFaCo dependency) | NZXT Kraken/Smart Device/HUE 2, Corsair Hydro/Commander Pro/Core, ASUS Ryujin, MSI Coreliquid, Lian Li Uni SL, Gigabyte RGB Fusion 2, Aquacomputer Farbwerk. *Reported:* experimental ASUS Aura USB driver for Z490/Z590/Z690 boards | **built-in provider** (not a plugin): the service already holds these USB devices open for fan control, so lighting shares the device objects and their lock. Each colour channel is one zone set with mode `fixed`, volatile only, at most every 0.5 s per device. Channels are read from the driver (`_color_channels`, module `_COLOR_CHANNELS`) or known single-`led` drivers (Hydro Platinum/690LC); other devices are not listed yet |
 | **OpenRazer** | DKMS kernel module + daemon, D-Bus API, Python library (232 devices) | Razer keyboards, mice, mousemats, headsets, accessories | planned plugin `openrazer` over D-Bus |
 | **ckb-next** | own daemon | Corsair keyboards/mice | not needed – Corsair works through OpenRGB; no public API found |
 | **libratbag / Piper** | D-Bus | gaming mice (Logitech, SteelSeries, Roccat …) | low priority |
@@ -122,6 +122,7 @@ read the bundled Python.
 | Plugins run without root, cannot read `/etc/shadow`, write plugin/config folders or `setuid(0)`; no network without the permission | container test with a real root daemon (Debian 13 python image, `--cap-add SYS_ADMIN`) |
 | Same with the AppImage's bundled Python | extracted AppImage on Debian 12 (older glibc). This found that the AppImage tree must be world-readable; the installer now does that (the installer step itself was not run end-to-end) |
 | GUI (search, install, enable, effect cards), CLI | headless GTK run in Xvfb against a real daemon and a local catalog; screenshots inspected |
+| `liquidctl` built-in lighting | tests with simulated liquidctl devices (channels, fixed mode without extra options, throttling, errors, shared lock); **no real device tried** |
 | `wled` plugin | tests against a simulated WLED controller (HTTP JSON + UDP) – no real WLED device yet |
 | `openrgb` plugin | tests against a simulated OpenRGB server (protocol 4 built from the SDK documentation). **Not yet run against a real OpenRGB server.** |
 | systemd unit with new `ReadWritePaths`, udev rule generation and reload, `i2c`/`usb` group access to real devices | **not tested** on a real system yet |
@@ -132,7 +133,7 @@ read the bundled Python.
    plugins `wled`, `openrgb`, `virtual`, developer tools and guide.
 2. **Verify** the `openrgb` plugin against real OpenRGB 0.9 and 1.0 servers with hardware (section 7). Decide how LiFaCo helps set up the OpenRGB server
    (systemd service with hardware access).
-3. `liquidctl` plugin (AIO, fan hubs, CPU cooler/fan lighting).
+3. liquidctl lighting: built in and tested with simulated devices only; needs testing with real AIOs/hubs, more drivers (Commander Core/Pro, Aquacomputer, RGB Fusion 2) and hardware modes.
 4. `openrazer` plugin (D-Bus).
 5. `msi-mystic-light` plugin with the safeguards from section 2.
 6. WLED: mDNS without avahi-browse, per-segment control.

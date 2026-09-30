@@ -485,6 +485,7 @@ class DaemonTests(unittest.TestCase):
 
     def setUp(self):
         import fake_hwmon
+
         from fancontrol_linux.daemon import Daemon
         from fancontrol_linux.hwmon import Hardware
         self.tmp = tempfile.mkdtemp()
@@ -529,3 +530,95 @@ class DaemonTests(unittest.TestCase):
             self.daemon.handle({"cmd": "plugin_install_file", "data": "!!!not base64!!!"})
         with self.assertRaises(ValueError):
             self.daemon.handle({"cmd": "light_set", "device": "x:y", "effect": {"type": "off"}})
+
+
+class FakeLiquidDevice:
+    """Stands in for a liquidctl driver object (a Kraken-like device with three colour channels)."""
+
+    def __init__(self, fail=False):
+        self._color_channels = {"external": 1, "ring": 2, "logo": 4, "sync": 7}
+        self.calls = []
+        self.fail = fail
+
+    def set_color(self, channel, mode, colors, **kwargs):
+        if self.fail:
+            raise OSError("usb write failed")
+        self.calls.append((channel, mode, colors, kwargs))
+
+
+class LiquidctlLightingTests(unittest.TestCase):
+    def setUp(self):
+        from types import SimpleNamespace
+        self.tmp = tempfile.mkdtemp()
+        for name, sub in (("FANCONTROL_PLUGINS_DIR", "plugins"), ("FANCONTROL_PLUGIN_DATA_DIR", "data"),
+                          ("FANCONTROL_CONFIG_DIR", "cfg")):
+            os.environ[name] = os.path.join(self.tmp, sub)
+        self.fake = FakeLiquidDevice()
+        self.dev = SimpleNamespace(key="liquidctl:nzxt-kraken", dev=self.fake, name="NZXT Kraken X (X53)",
+                                   status=[("Liquid temperature", 30, "°C"), ("Pump speed", 2000, "rpm")],
+                                   lock=threading.RLock())
+        from fancontrol_linux.lighting.liquidctl_lighting import LiquidctlLighting
+        self.provider = LiquidctlLighting(lambda: [self.dev])
+        self.m = LightingManager()
+        self.m.set_builtin(self.provider, "liquidctl (built in)")
+        self.m.start()
+
+    def tearDown(self):
+        self.m.shutdown()
+        shutil.rmtree(self.tmp)
+
+    def wait(self, cond, seconds=5):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if cond():
+                return True
+            time.sleep(0.05)
+        return False
+
+    def test_device_and_channels(self):
+        d = self.m.list_devices()[0]
+        self.assertEqual((d["key"], d["type"], d["direct"], d["leds"]), ("liquidctl:nzxt-kraken", "cooler", True, 3))
+        self.assertEqual([z["name"] for z in d["zones"]], ["external", "ring", "logo"])     # "sync" is not a zone
+        entry = self.m.list_plugins()[0]
+        self.assertTrue(entry["builtin"] and entry["status"] == "running")
+
+    def test_static_colour_uses_fixed_mode_and_never_saves(self):
+        self.m.set_effect("liquidctl:nzxt-kraken", {"type": "static", "color": [10, 20, 30]})
+        self.assertTrue(self.wait(lambda: len(self.fake.calls) == 3))
+        self.assertEqual([(c, m, col) for c, m, col, _kw in self.fake.calls],
+                         [("external", "fixed", [[10, 20, 30]]), ("ring", "fixed", [[10, 20, 30]]),
+                          ("logo", "fixed", [[10, 20, 30]])])
+        self.assertTrue(all(kw == {} for *_a, kw in self.fake.calls))       # no non_volatile or other options
+        time.sleep(0.8)
+        self.assertEqual(len(self.fake.calls), 3)                            # unchanged colour is not resent
+
+    def test_animated_effect_is_throttled(self):
+        self.m.set_effect("liquidctl:nzxt-kraken", {"type": "rainbow", "speed": 100})
+        time.sleep(1.6)
+        per_channel = len([c for c in self.fake.calls if c[0] == "ring"])
+        self.assertLessEqual(per_channel, 4)        # 0.5 s minimum interval, not 20 updates per second
+        self.assertGreaterEqual(per_channel, 2)
+
+    def test_driver_error_shows_on_the_device(self):
+        self.fake.fail = True
+        self.m.set_effect("liquidctl:nzxt-kraken", {"type": "static", "color": [1, 2, 3]})
+        self.assertTrue(self.wait(lambda: "usb write failed" in self.m.list_devices()[0]["error"]))
+
+    def test_fan_control_and_lighting_share_the_device_lock(self):
+        got = []
+        with self.dev.lock:                              # the fan loop is talking to the device
+            self.m.set_effect("liquidctl:nzxt-kraken", {"type": "static", "color": [1, 2, 3]})
+            time.sleep(0.5)
+            got.append(len(self.fake.calls))
+        self.assertEqual(got, [0])
+        self.assertTrue(self.wait(lambda: len(self.fake.calls) == 3))
+
+    def test_devices_without_known_channels_are_not_listed(self):
+        self.fake._color_channels = {}
+        self.assertEqual(self.provider.devices(), [])
+
+    def test_hardware_effects_are_refused_and_id_is_reserved(self):
+        with self.assertRaises(LightingError):
+            self.m.set_effect("liquidctl:nzxt-kraken", {"type": "hardware", "mode": "rainbow"})
+        with self.assertRaises(mf.ManifestError):
+            mf.load_manifest('id = "liquidctl"\nname = "x"\nversion = "1.0.0"')
