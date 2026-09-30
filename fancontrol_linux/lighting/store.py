@@ -9,6 +9,7 @@ import tempfile
 import zipfile
 
 from .. import config as cfgmod
+from . import effects
 from .manifest import ManifestError, load_manifest, load_manifest_file
 
 MAX_ZIP = 8 * 1024 * 1024
@@ -29,7 +30,8 @@ def state_path():
 
 
 def empty_state():
-    return {"version": 1, "catalog_url": "", "plugins": {}, "devices": {}, "previous": {}, "off_on_exit": False}
+    return {"version": 1, "catalog_url": "", "plugins": {}, "devices": {}, "previous": {}, "off_on_exit": False,
+            "sync": effects.normalize_sync(None)}
 
 
 def load_state():
@@ -57,6 +59,7 @@ def load_state():
             if isinstance(effect, dict):
                 state["previous"][str(key)] = effect
         state["off_on_exit"] = bool(raw.get("off_on_exit"))
+        state["sync"] = effects.normalize_sync(raw.get("sync"))
     return state
 
 

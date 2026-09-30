@@ -755,6 +755,7 @@ class StopsDialog:
 
 
 class DeviceCard(Gtk.Box):
+    allow_release = True           # "Not controlled" in the effect list
     """One LED device as a tile: icon, name, power switch and a preview of its colours; the chevron opens the
     settings. The tile is the source of truth while the user edits; the server state is applied when idle."""
 
@@ -792,6 +793,7 @@ class DeviceCard(Gtk.Box):
         identify.connect("clicked", lambda *_: run_async(
             lambda: win.client.call("light_identify", device=device["key"]), None, lambda e: win.toast(str(e))))
         foot.append(identify)
+        self.identify_button = identify
         self.chevron = Gtk.ToggleButton(icon_name="pan-down-symbolic", css_classes=["flat", "circular"],
                                         tooltip_text="Settings")
         foot.append(self.chevron)
@@ -850,7 +852,7 @@ class DeviceCard(Gtk.Box):
     # --- controls ---------------------------------------------------------------------
     def _build_controls(self, saved):
         d, win = self.device, self.win
-        self.choices = [("release", "Not controlled")]
+        self.choices = [("release", "Not controlled")] if self.allow_release else []
         if d["direct"]:
             self.choices += list(EFFECTS)
         self.choices += [(f"hw:{m['name']}", f"{m['name']}  (device)") for m in d["modes"]]
@@ -926,13 +928,19 @@ class DeviceCard(Gtk.Box):
         if "speed" in saved:
             self.speed.set_value(saved["speed"])
         self.power.set_active(bool(device.get("on")))
-        self.bar.set_effect(effect)
+        self.bar.set_effect(device.get("shown", effect))
         zones = len(device["zones"])
         self.subtitle.set_label(f"{device['plugin_name']} · {device['leds']} LEDs"
                                 + (f" · {zones} zones" if zones > 1 else ""))
         labels = dict(self.choices)
         self.summary.set_label(labels.get(key, "Not controlled") if effect else "Not controlled")
         self.set_error(device.get("error"))
+        synced = bool(device.get("synced"))
+        self.controls.set_sensitive(not synced)        # sync mode decides; the own effect comes back afterwards
+        self.power.set_sensitive(not synced)
+        if synced:
+            self.power.set_active(True)
+            self.summary.set_label("In sync with all devices")
         self._layout()
         self.loading = False
 
@@ -1018,6 +1026,42 @@ class DeviceCard(Gtk.Box):
         return False
 
 
+class SyncCard(DeviceCard):
+    """Sync mode: one effect for all devices, edited with the same controls as a device. Its switch turns sync on."""
+
+    allow_release = False
+
+    def __init__(self, win, sync):
+        super().__init__(win, self.pseudo(sync))
+        self.identify_button.set_visible(False)
+
+    @staticmethod
+    def pseudo(sync):
+        return {"key": "sync", "name": "Sync: all devices", "type": "other", "direct": True, "modes": [], "zones": [],
+                "leds": 0, "plugin_name": "", "effect": sync["effect"], "on": sync["on"], "error": "",
+                "devices": sync["devices"]}
+
+    def apply_state(self, device):
+        super().apply_state(device)
+        n = device.get("devices", 0)
+        self.subtitle.set_label(f"Same effect on {n} devices" if device["on"] else "Off – every device has its own")
+        if not device["on"]:
+            self.summary.set_label("Switch on to control all devices together")
+
+    def _power(self, on):
+        if self.loading:
+            return
+        run_async(lambda: self.win.client.call("light_sync", on=on),
+                  lambda _d: self.win.light_refresh(), lambda e: (self.win.toast(str(e)), self.win.light_refresh()))
+
+    def _send(self):
+        self.pending = None
+        effect = self.effect()
+        run_async(lambda: self.win.client.call("light_sync", effect=effect),
+                  lambda _d: (self.set_error(""), self.win.light_refresh()), lambda e: self.set_error(str(e)))
+        return False
+
+
 def effects_default_stops(is_fan):
     from ..lighting import effects
     return effects.FAN_STOPS if is_fan else effects.DEFAULT_STOPS
@@ -1096,7 +1140,8 @@ class LightSection(Gtk.Box):
             return
 
         def fetch():
-            return self.win.client.call("light_devices"), self.win.client.call("plugin_list")
+            return (self.win.client.call("light_devices"), self.win.client.call("plugin_list"),
+                    self.win.client.call("light_sync"))
         run_async(fetch, self._show, lambda e: None)
 
     def _clear(self):
@@ -1107,18 +1152,18 @@ class LightSection(Gtk.Box):
         self.cards = {}
 
     def _show(self, result):
-        devices, plugins = result
+        devices, plugins, sync = result
         tray = getattr(self.win, "tray", None)
         if tray:
             tray.set_lights(bool(devices))
-        active = sum(len(d["zones"]) for d in devices if d.get("on"))
+        active = sum(len(d["zones"]) for d in devices if d.get("on") or d.get("synced"))
         self.stat_devices.set(f"{len(devices)} devices")
         self.stat_zones.set(f"{active} zones")
         self.stat_profile.set((self.win.config or {}).get("profile") or "–")
         signature = (tuple((d["key"], d["name"], d["leds"], len(d["modes"]), d["direct"]) for d in devices),
                      any(p.get("enabled") for p in plugins))
         if signature == self.signature:
-            for d in devices:                      # apply changes made elsewhere, but never while the user is editing
+            for d in devices + [SyncCard.pseudo(sync)]:   # changes made elsewhere, but never while editing
                 card = self.cards.get(d["key"])
                 if card and not card.pending and time.monotonic() - card.edited > EDIT_QUIET:
                     card.apply_state(d)
@@ -1137,6 +1182,9 @@ class LightSection(Gtk.Box):
         self.holder.append(self.overview)
         self.holder.append(Gtk.Label(label="Devices", xalign=0, css_classes=["fc-page-title"], margin_top=8))
         flow = ui.CardFlow()
+        if any(d["direct"] for d in devices):
+            self.cards["sync"] = SyncCard(self.win, sync)
+            flow.append(self.cards["sync"])
         for d in devices:
             card = DeviceCard(self.win, d)
             self.cards[d["key"]] = card

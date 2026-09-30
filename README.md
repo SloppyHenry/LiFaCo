@@ -123,7 +123,8 @@ switch the plugin off - no permanent service is created). Devices OpenRGB cannot
 controllers (E1.31, DDP, LIFX, Yeelight, Govee, Elgato, WiZ, Kasa) and Arduino LED strips on a serial port - are added
 in LiFaCo (Settings → LED devices → OpenRGB → Devices you add yourself); the number of LEDs on addressable headers is
 set on the device card, and "Search the hardware again" makes OpenRGB look for new hardware. The `wled` plugin finds
-WLED devices on the network by itself (mDNS, every minute). Planned: OpenRazer and a careful MSI Mystic Light plugin.
+WLED devices on the network by itself (mDNS, every minute). **Sync mode** (first tile under Light → Devices) shows one effect on every device
+that takes LiFaCo's colours, in step; each device's own setting returns when sync is switched off. Planned: OpenRazer and a careful MSI Mystic Light plugin.
 
 LiFaCo draws the effects itself (static, breathing, rainbow, **colour that follows a temperature or a fan's speed**,
 with an editable colour gradient) and streams them to the devices; devices that have their own effects can run those

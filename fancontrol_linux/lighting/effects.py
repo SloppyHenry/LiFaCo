@@ -23,6 +23,21 @@ class EffectError(ValueError):
     pass
 
 
+SYNC_DEFAULT = {"type": "rainbow", "speed": 50.0, "brightness": 100.0}
+
+
+def normalize_sync(raw):
+    """Sync mode: one effect for every device that takes LiFaCo's colours. Hardware effects cannot be shared."""
+    raw = raw if isinstance(raw, dict) else {}
+    try:
+        effect = normalize(raw.get("effect"))
+        if effect["type"] == "hardware":
+            raise EffectError("hardware")
+    except EffectError:
+        effect = dict(SYNC_DEFAULT)
+    return {"on": bool(raw.get("on")), "effect": effect, "resume": bool(raw.get("resume"))}
+
+
 def _color(value, field="color"):
     try:
         r, g, b = (int(value[i]) for i in range(3))

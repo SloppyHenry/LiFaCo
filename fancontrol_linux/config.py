@@ -177,7 +177,11 @@ def _lighting(raw):
             devices[str(key)] = light_effects.normalize(effect)
         except light_effects.EffectError:
             continue
-    return {"devices": devices}
+    out = {"devices": devices}
+    if isinstance(raw.get("sync"), dict):
+        sync = light_effects.normalize_sync(raw["sync"])
+        out["sync"] = {"on": sync["on"], "effect": sync["effect"]}
+    return out
 
 
 def normalize(cfg):

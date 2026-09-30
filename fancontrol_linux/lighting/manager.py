@@ -558,7 +558,10 @@ class LightingManager:
                     key = f"{pid}:{d['id']}"
                     effect = self.state["devices"].get(key)
                     out.append(dict(d, key=key, plugin=pid, plugin_name=rt.info["manifest"]["name"], effect=effect,
-                                    on=bool(effect) and effect["type"] != "off", error=self.errors.get(key, "")))
+                                    on=bool(effect) and effect["type"] != "off", error=self.errors.get(key, ""),
+                                    synced=self.state["sync"]["on"] and d["direct"],
+                                    shown=self.state["sync"]["effect"] if self.state["sync"]["on"] and d["direct"]
+                                    else effect))
             return out
 
     def _device(self, key):
@@ -609,7 +612,15 @@ class LightingManager:
             self.set_effect(key, effect)
 
     def power_all(self, on):
-        """All devices on or off. Returns how many were switched."""
+        """All devices on or off. Returns how many were switched. Sync mode goes off with them and comes back."""
+        with self.lock:
+            sync = self.state["sync"]
+            if not on and sync["on"]:
+                sync["on"], sync["resume"] = False, True
+            elif on and sync["resume"]:
+                sync["on"], sync["resume"] = True, False
+            self.applied.clear()
+            self._save()
         count = 0
         for d in self.list_devices():
             try:
@@ -618,6 +629,27 @@ class LightingManager:
             except LightingError:
                 continue
         return count
+
+    def get_sync(self):
+        with self.lock:
+            sync = self.state["sync"]
+            count = sum(1 for rt in self.runtimes.values() if rt.state == "running" for d in rt.devices if d["direct"])
+            return {"on": sync["on"], "effect": dict(sync["effect"]), "devices": count}
+
+    def set_sync(self, on=None, effect=None):
+        """Switch sync mode and/or set its effect (static, breathing, rainbow, temperature, off)."""
+        with self.lock:
+            sync = self.state["sync"]
+            if effect is not None:
+                effect = effects.normalize(effect)
+                if effect["type"] == "hardware":
+                    raise LightingError("Sync mode uses LiFaCo's effects; device effects differ from device to device")
+                sync["effect"] = effect
+            if on is not None:
+                sync["on"], sync["resume"] = bool(on), False
+            self.applied.clear()        # every device gets the new colours at once
+            self._save()
+        return self.get_sync()
 
     def get_light_settings(self):
         with self.lock:
@@ -632,12 +664,15 @@ class LightingManager:
     def profile_data(self):
         """What a profile stores about lighting: the effect of every device."""
         with self.lock:
-            return {"devices": {k: dict(v) for k, v in self.state["devices"].items()}}
+            sync = self.state["sync"]
+            return {"devices": {k: dict(v) for k, v in self.state["devices"].items()},
+                    "sync": {"on": sync["on"], "effect": dict(sync["effect"])}}
 
     def load_profile_data(self, data):
         """Apply the lighting of a profile: devices not mentioned are released, the rest get their effect."""
         with self.lock:
             self.state["devices"] = {k: dict(v) for k, v in (data or {}).get("devices", {}).items()}
+            self.state["sync"] = effects.normalize_sync((data or {}).get("sync"))   # older profiles: sync off
             self.applied.clear()
             self._save()
 
@@ -735,9 +770,11 @@ class LightingManager:
                 rt.attempts = 0
             if rt.state != "running":
                 continue
+            sync = self.state["sync"]
             for dev in rt.devices:
                 key = f"{rt.pid}:{dev['id']}"
-                effect = self.state["devices"].get(key)
+                # Sync mode: every device that takes LiFaCo's colours shows the same effect, in step (same clock)
+                effect = sync["effect"] if sync["on"] and dev["direct"] else self.state["devices"].get(key)
                 if not effect:
                     continue
                 last = self.applied.get(key)

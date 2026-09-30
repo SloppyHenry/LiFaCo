@@ -178,6 +178,11 @@ class Daemon:
             return self.lighting.set_light_settings(req)
         return self.lighting.get_light_settings()
 
+    def cmd_light_sync(self, req):
+        if "on" in req or "effect" in req:
+            return self.lighting.set_sync(req.get("on") if "on" in req else None, req.get("effect"))
+        return self.lighting.get_sync()
+
     def cmd_light_rescan(self, _):
         self.lighting.rescan()
         return self.lighting.list_devices()

@@ -944,6 +944,55 @@ class ServerStartTests(ManagerBase):
         self.assertNotEqual(mf.permission_key(plain), mf.permission_key(with_start))
 
 
+class SyncTests(ManagerBase):
+    def test_sync_overrides_and_restores_own_effects(self):
+        self.install_and_enable()
+        self.m.set_effect("test-plugin:d1", {"type": "static", "color": [10, 20, 30]})
+        self.assertTrue(self.wait(lambda: self.colors_now() == [10, 20, 30]))
+        state = self.m.set_sync(on=True, effect={"type": "static", "color": [200, 0, 0]})
+        self.assertEqual((state["on"], state["devices"]), (True, 2))
+        self.assertTrue(self.wait(lambda: self.colors_now() == [200, 0, 0]))
+        d1 = next(d for d in self.m.list_devices() if d["key"] == "test-plugin:d1")
+        self.assertTrue(d1["synced"])
+        self.assertEqual(d1["effect"]["color"], [10, 20, 30])            # own effect is kept …
+        self.assertEqual(d1["shown"]["color"], [200, 0, 0])
+        self.m.set_sync(on=False)
+        self.assertTrue(self.wait(lambda: self.colors_now() == [10, 20, 30]))   # … and comes back
+
+    def test_all_off_and_on_takes_sync_along(self):
+        self.install_and_enable()
+        self.m.set_sync(on=True)
+        self.m.power_all(False)
+        self.assertFalse(self.m.get_sync()["on"])
+        self.m.power_all(True)
+        self.assertTrue(self.m.get_sync()["on"])
+        self.m.set_sync(on=False)
+        self.m.power_all(False)
+        self.m.power_all(True)
+        self.assertFalse(self.m.get_sync()["on"])                        # was off before: stays off
+
+    def test_hardware_effects_are_refused(self):
+        with self.assertRaises(LightingError):
+            self.m.set_sync(effect={"type": "hardware", "mode": "Wave"})
+        with self.assertRaises(ValueError):
+            self.m.set_sync(effect={"type": "nonsense"})
+
+    def test_profiles_and_saved_state(self):
+        self.m.set_sync(on=True, effect={"type": "breathing", "color": [1, 2, 3]})
+        data = self.m.profile_data()
+        self.assertEqual((data["sync"]["on"], data["sync"]["effect"]["type"]), (True, "breathing"))
+        self.m.load_profile_data({"devices": {}})                           # a profile from before sync existed
+        self.assertFalse(self.m.get_sync()["on"])
+        self.m.load_profile_data(data)
+        self.assertTrue(self.m.get_sync()["on"])
+        self.assertEqual(store.load_state()["sync"]["effect"]["color"], [1, 2, 3])
+        from fancontrol_linux import config as cfgmod
+        cfg = cfgmod.normalize({"lighting": data})
+        self.assertEqual(cfg["lighting"]["sync"]["effect"]["type"], "breathing")
+        broken = store.effects.normalize_sync({"on": True, "effect": {"type": "hardware", "mode": "x"}})
+        self.assertEqual(broken["effect"]["type"], "rainbow")
+
+
 RESIZE_PY = '''
 from lifaco_plugin import Device, Plugin, Zone, run
 import json, os
