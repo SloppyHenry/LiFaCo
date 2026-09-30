@@ -126,7 +126,9 @@ class LedPage(Adw.Bin):
 
     def _fail(self, error):
         self.win.toast(str(error))
+        self.plugins = []
         self.refresh()
+        self._search(self.query)          # what is installed may have changed anyway (for example after a timeout)
 
     # --- installed plugins ------------------------------------------------------------
     def _signature(self, plugins):
@@ -189,19 +191,19 @@ class LedPage(Adw.Bin):
         if p["settings_schema"]:
             save = Gtk.Button(label="Save settings", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
             save.connect("clicked", lambda *_: run_async(
-                lambda: self.win.client.call("plugin_settings", id=p["id"], settings=values),
+                lambda: self.slow.call("plugin_settings", id=p["id"], settings=values),
                 lambda plugins: (self.win.toast("Settings saved"), self.refresh(plugins)), self._fail))
             actions.add_suffix(save)
         if p["enabled"] and not p["needs_approval"]:
             restart = Gtk.Button(label="Restart", valign=Gtk.Align.CENTER)
             restart.connect("clicked", lambda *_: run_async(
-                lambda: self.win.client.call("plugin_restart", id=p["id"]), self.refresh, self._fail))
+                lambda: self.slow.call("plugin_restart", id=p["id"]), self.refresh, self._fail))
             actions.add_suffix(restart)
         remove = Gtk.Button(label="Remove", valign=Gtk.Align.CENTER, css_classes=["destructive-action"])
         remove.connect("clicked", lambda *_: self.win.confirm(
             f"Remove {p['name']}?", "The plugin and its stored data are deleted. Lighting settings for its devices "
             "are forgotten.", "Remove", lambda: run_async(
-                lambda: self.win.client.call("plugin_remove", id=p["id"]), self._removed, self._fail), destructive=True))
+                lambda: self.slow.call("plugin_remove", id=p["id"]), self._removed, self._fail), destructive=True))
         actions.add_suffix(remove)
         row.add_row(actions)
         return row
@@ -275,7 +277,7 @@ class LedPage(Adw.Bin):
         if active and p["needs_approval"]:
             self._ask_permission(p)
         else:
-            run_async(lambda: self.win.client.call("plugin_enable", id=p["id"], enabled=active),
+            run_async(lambda: self.slow.call("plugin_enable", id=p["id"], enabled=active),
                       self.refresh, self._fail)
 
     def _ask_permission(self, p):
@@ -290,7 +292,7 @@ class LedPage(Adw.Bin):
 
         def answered(_d, response):
             if response == "allow":
-                run_async(lambda: self.win.client.call("plugin_enable", id=p["id"], enabled=True, approve=True),
+                run_async(lambda: self.slow.call("plugin_enable", id=p["id"], enabled=True, approve=True),
                           self.refresh, self._fail)
             else:
                 self.plugins = []      # forces the switch back to its real state

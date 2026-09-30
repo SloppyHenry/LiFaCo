@@ -224,7 +224,7 @@ class PluginProcess:
             return
         if proc.poll() is None:
             try:
-                self.call("close", timeout=2)
+                self.call("close", timeout=1)
             except PluginError:
                 pass
             try:
@@ -232,7 +232,7 @@ class PluginProcess:
             except OSError:
                 pass
             try:
-                proc.wait(timeout=2)
+                proc.wait(timeout=1)
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()

@@ -834,3 +834,18 @@ class HelperTests(unittest.TestCase):
         self.helper.start_install()
         self.assertFalse(self.helper.installing)
         self.assertEqual(self.helper.error, "")
+
+
+class SlowStopTests(ManagerBase):
+    def test_removing_a_busy_plugin_is_quick(self):
+        """A plugin stuck in discover() (for example waiting for a hung server) must not make removal slow:
+        the GUI's client gives up after a few seconds."""
+        toml = TOML.replace("test-plugin", "busy")
+        code = ("import time\nfrom lifaco_plugin import Device, Plugin, run\n"
+                "class P(Plugin):\n    def discover(self):\n        time.sleep(60)\nrun(P)\n")
+        self.m.install_file(base64.b64encode(make_zip({"plugin.toml": toml, "plugin.py": code})).decode())
+        self.m.enable("busy", True, approve=True)
+        time.sleep(1.0)                                       # the plugin is now inside discover()
+        started = time.monotonic()
+        self.m.remove("busy")
+        self.assertLess(time.monotonic() - started, 3.0)
